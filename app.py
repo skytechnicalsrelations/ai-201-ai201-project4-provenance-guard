@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, request
 
 from auditor import AuditEvent, append_event, read_events
+from config import AI_THRESHOLD, HUMAN_THRESHOLD
 from signals import run_llm_signal
 
 app = Flask(__name__)
@@ -20,6 +21,19 @@ app = Flask(__name__)
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _attribution_band(score: float) -> str:
+    """Map a 0-1 AI-likelihood score to an attribution band.
+
+    M3: fed the Signal 1 score alone (provisional). M4 feeds the blended
+    confidence here instead; the thresholds themselves stay fixed.
+    """
+    if score < HUMAN_THRESHOLD:
+        return "likely_human"
+    if score < AI_THRESHOLD:
+        return "uncertain"
+    return "likely_ai"
 
 
 @app.post("/submit")
@@ -40,9 +54,11 @@ def submit():
     # --- Signal 1 (live) ---
     llm = run_llm_signal(text)
 
-    # --- M4/M5 placeholders (not yet computed) ---
-    confidence = None
-    attribution = None
+    # --- Provisional results from Signal 1 only ---
+    # M4 replaces `confidence` with the blended 0.6*llm + 0.4*stylometric score;
+    # the band mapping and the label text (M5) stay placeholders until then.
+    confidence = round(llm.llm_score, 3)
+    attribution = _attribution_band(confidence)
     label = "(transparency label generated in M5)"
 
     append_event(
@@ -54,7 +70,9 @@ def submit():
             status="classified",
             llm_score=llm.llm_score,
             llm_rationale=llm.rationale,
-            # stylometric_score / confidence / attribution filled in M4
+            confidence=confidence,
+            attribution=attribution,
+            # stylometric_score filled in M4
         )
     )
 
