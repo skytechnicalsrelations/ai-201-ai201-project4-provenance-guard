@@ -108,6 +108,40 @@ A single structural score combined from three measurable properties. No model, n
 
 The two signals are independent along the axis that matters: Signal 1 can be right about *voice* when Signal 2 is fooled by *form* (e.g., a varied-but-AI-voiced paragraph), and Signal 2 stays stable when Signal 1 wobbles run-to-run. Their **shared** weakness — both can flag a formal or non-native human as AI — is the false-positive risk the confidence scoring and label thresholds are designed to hedge against, and the appeal path exists precisely for when they're both wrong.
 
+## Confidence Scoring
+
+### What the score means
+The system produces **one** combined score: `confidence` ∈ `[0, 1]`, interpreted as **AI-likelihood** (P the text is AI-generated).
+
+- `0.0` → reads as clearly human
+- `~0.5` → genuinely uncertain (the signals don't agree, or both are weak)
+- `1.0` → reads as clearly AI
+
+There is no separate "certainty" number — uncertainty is represented by the score sitting near the middle, which is what makes a `0.51` produce a different label than a `0.95`.
+
+### How the two signals combine
+A weighted average, **LLM-weighted** because the semantic signal is more reliable than the structural one (which misclassifies whole genres):
+
+```
+confidence = 0.6 * llm_score + 0.4 * stylometric_score
+```
+
+These weights are **initial values, calibrated in Milestone 4** against the four reference inputs (clear-AI, clear-human, formal-human, lightly-edited-AI). If a clearly-human input scores too high, the stylometric weight comes down.
+
+### How the three stylometric metrics roll up
+Each metric is normalized to `0–1` (higher = more AI-like), then **equal-weight averaged** into `stylometric_score`:
+
+```
+stylometric_score = mean(norm_sentence_length_variance,
+                         norm_type_token_ratio,
+                         norm_punctuation_density)
+```
+
+Equal weighting keeps it transparent and easy to document; per-metric weighting is a possible M4 refinement if one metric proves noisy.
+
+### False-positive asymmetry → lives in the thresholds
+We chose LLM-weighted averaging rather than disagreement-aware blending, so the hedge against the worst error (calling a human's work AI) is **not** in the combination — it is in **where the band thresholds sit**. The "likely AI" band starts *high* (provisionally `≥ 0.70`) so the system is reluctant to accuse, while leaving a wide "uncertain" middle. Exact thresholds are pinned with the transparency label variants.
+
 ## Storage
 
 **Backend: append-only JSONL audit log** (`logs/audit.jsonl`). Each line is one structured event. There is no separate database — the log *is* the source of truth.
