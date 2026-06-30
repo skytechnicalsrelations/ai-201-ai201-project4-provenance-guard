@@ -1,10 +1,9 @@
 """Provenance Guard -- Flask API.
 
-M3 scope: the POST /submit front door runs Signal 1 (LLM classifier) live and
-writes a `classified` event to the audit log; GET /log surfaces recent events.
-Confidence, attribution band, and the transparency label are M4/M5 work and are
-returned as explicit `None` placeholders so the response shape is honest about
-what is not computed yet.
+POST /submit runs both detection signals (Signal 1 LLM classifier + Signal 2
+stylometric heuristics), blends them into a calibrated confidence + attribution
+band, and writes a `classified` event to the audit log. GET /log surfaces recent
+events. The transparency label is M5 work and stays a placeholder for now.
 """
 
 import uuid
@@ -14,8 +13,8 @@ from flask import Flask, Response, jsonify, request
 
 from apidocs import OPENAPI_SPEC, SWAGGER_HTML
 from auditor import AuditEvent, append_event, read_events
-from config import AI_THRESHOLD, HUMAN_THRESHOLD
-from signals import run_llm_signal
+from scoring import classify
+from signals import run_llm_signal, run_stylometric_signal
 
 app = Flask(__name__)
 
@@ -24,24 +23,11 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _attribution_band(score: float) -> str:
-    """Map a 0-1 AI-likelihood score to an attribution band.
-
-    M3: fed the Signal 1 score alone (provisional). M4 feeds the blended
-    confidence here instead; the thresholds themselves stay fixed.
-    """
-    if score < HUMAN_THRESHOLD:
-        return "likely_human"
-    if score < AI_THRESHOLD:
-        return "uncertain"
-    return "likely_ai"
-
-
 @app.post("/submit")
 def submit():
     """Accept text for attribution analysis and run the detection pipeline.
 
-    M3: Signal 1 is live; confidence/attribution/label are placeholders.
+    Signals 1 + 2 are live and combined; the transparency label is an M5 placeholder.
     """
     body = request.get_json(silent=True) or {}
     text = body.get("text")
@@ -52,14 +38,14 @@ def submit():
 
     content_id = str(uuid.uuid4())
 
-    # --- Signal 1 (live) ---
-    llm = run_llm_signal(text)
+    # --- Detection pipeline: two independent signals, fanned out from the same text ---
+    llm = run_llm_signal(text)  # Signal 1 (semantic)
+    sty = run_stylometric_signal(text)  # Signal 2 (structural)
 
-    # --- Provisional results from Signal 1 only ---
-    # M4 replaces `confidence` with the blended 0.6*llm + 0.4*stylometric score;
-    # the band mapping and the label text (M5) stay placeholders until then.
-    confidence = round(llm.llm_score, 3)
-    attribution = _attribution_band(confidence)
+    # --- Confidence scorer: 0.6*llm + 0.4*stylometric, with the short-input guard ---
+    score = classify(llm.llm_score, sty.stylometric_score, is_short=sty.is_short)
+    confidence = score.confidence
+    attribution = score.attribution
     label = "(transparency label generated in M5)"
 
     append_event(
@@ -71,9 +57,9 @@ def submit():
             status="classified",
             llm_score=llm.llm_score,
             llm_rationale=llm.rationale,
+            stylometric_score=round(sty.stylometric_score, 3),
             confidence=confidence,
             attribution=attribution,
-            # stylometric_score filled in M4
         )
     )
 

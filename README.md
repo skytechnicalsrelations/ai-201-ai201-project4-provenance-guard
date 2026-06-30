@@ -32,12 +32,12 @@ Provenance Guard is a backend system that any creative-sharing platform can plug
 
 | Milestone | Component | Description |
 |-----------|-----------|-------------|
-| 3 | `POST /submit` + signal 1 (Groq LLM) | Accept text, run first detection signal, return structured response |
-| 3 | Audit log + `GET /log` | Write a structured entry per submission; expose recent entries |
-| 4 | Signal 2 (stylometric heuristics) + confidence scoring | Add second signal, combine into one calibrated score |
-| 5 | Transparency label | Map confidence score to one of three label variants |
-| 5 | `POST /appeal` | Capture creator reasoning, set status `under_review`, log it |
-| 5 | Rate limiting | Apply Flask-Limiter to `/submit` with documented limits |
+| 3 | `POST /submit` + signal 1 (Groq LLM) | ✅ Done — accepts text, runs Signal 1 live, returns structured response |
+| 3 | Audit log + `GET /log` | ✅ Done — structured entry per submission; recent entries exposed |
+| 4 | Signal 2 (stylometric heuristics) + confidence scoring | ✅ Done — second signal added, combined into one calibrated score |
+| 5 | Transparency label | ⏳ Not started — map confidence score to one of three label variants |
+| 5 | `POST /appeal` | ⏳ Not started — capture creator reasoning, set status `under_review`, log it |
+| 5 | Rate limiting | ⏳ Not started — apply Flask-Limiter to `/submit` with documented limits |
 
 Read `planning.md` (written before implementation) for the full spec, architecture diagram, and AI tool plan.
 
@@ -52,6 +52,8 @@ Read `planning.md` (written before implementation) for the full spec, architectu
 | `/appeals` | GET | — | reviewer queue: items `under_review` with original decision + appeal reasoning |
 | `/content/<id>` | GET | — | current folded state for one submission (status + decision) |
 | `/log` | GET | — | most recent structured audit entries |
+| `/docs` | GET | — | interactive Swagger UI for trying the API in a browser |
+| `/openapi.json` | GET | — | machine-readable OpenAPI 3 spec backing `/docs` |
 
 Storage is an **append-only JSONL audit log** (`logs/audit.jsonl`) — the log is the source of truth, and a submission's current status is the most recent event for its `content_id`. Full contract and field shapes in [planning.md](planning.md#api-surface).
 
@@ -92,17 +94,28 @@ One structural score blended from three measurable properties — deterministic,
 
 ## Confidence Scoring
 
-<!-- How you combined the two signals into one score, how you validated it's
-     meaningful, and how you handle uncertainty (0.51 vs 0.95 must differ). -->
+The two signals combine as a fixed, LLM-weighted average:
 
-_TODO: explain the combination/weighting and calibration approach._
+```
+confidence = 0.6 * llm_score + 0.4 * stylometric_score
+```
 
-**Example submissions** (from Milestone 4 testing):
+`stylometric_score` is itself an equal-weight average of three normalized 0–1 sub-metrics (sentence-length variance, type-token ratio, punctuation expressiveness — see `scoring.py` / `signals.py`). The combined `confidence` then maps to a band via fixed thresholds (`< 0.35` human, `< 0.70` uncertain, `≥ 0.70` AI) — see [Transparency Label](#transparency-label) below. Uncertainty is represented by where the score sits, not a separate number: `0.667` and `0.95` both round toward "AI" colloquially, but only `0.95` clears the AI threshold — `0.667` stays `uncertain`.
 
-| Input | Signal 1 | Signal 2 | Confidence | Label |
-|-------|----------|----------|------------|-------|
-| _High-confidence case_ | — | — | — | — |
-| _Lower-confidence case_ | — | — | — | — |
+A **short-input guard** (edge case #3) forces the band to `uncertain` whenever the text is under 25 words or 3 sentences — at that size, sentence-variance and TTR are statistical noise, so the system declines to issue a confident verdict regardless of the raw score.
+
+### Calibration (Milestone 4)
+
+The four reference inputs were run through the live pipeline to validate the bands. The first calibration attempt **failed one case**: `type-token ratio` was normalized against bounds (`0.40–0.80`) tuned for long-form text, but all four ~40–55 word reference inputs had a raw TTR of `0.86–0.90` — every input saturated the metric to `1.0`, so it contributed nothing and inflated every score. Re-centering the TTR bounds to `0.85–0.95` (where short-text TTR actually clusters) fixed it without touching the weights or band thresholds, which the spec freezes. Final results:
+
+| Input | Signal 1 (llm) | Signal 2 (stylometric) | Confidence | Attribution |
+|-------|:--:|:--:|:--:|------|
+| Clear AI | 0.90 | 0.49 | **0.735** | `likely_ai` ✅ |
+| Clear human | 0.10 | 0.36 | **0.205** | `likely_human` ✅ |
+| Formal human (false-positive test) | 0.80 | 0.47 | **0.669** | `uncertain` ✅ |
+| Lightly-edited AI | 0.70 | 0.62 | **0.667** | `uncertain` ✅ |
+
+The critical test — formal human writing — lands `uncertain` at `0.669`, just under the `0.70` AI threshold, by the scoring math itself (not the short-input guard). This is the asymmetry the spec calls for: a real human's measured, formal register doesn't get accused of being AI.
 
 ---
 
@@ -152,30 +165,83 @@ TODO: paste status-code output — 200 × 10 then 429 × 2
 
 ## Audit Log
 
-<!-- At least 3 structured entries: timestamp, content_id, attribution,
-     confidence, both signal scores, status / appeal. -->
+Four entries from `GET /log`, one per Milestone 4 reference input (appeal entry to be added in Milestone 5):
 
 ```json
-TODO: paste at least 3 entries from GET /log, including one appeal
+{
+  "content_id": "028d8d25-2af4-4cea-9949-5f42544b5558",
+  "creator_id": "creator-ai-demo",
+  "timestamp": "2026-06-30T23:53:23.814045+00:00",
+  "event": "classified",
+  "status": "classified",
+  "llm_score": 0.9,
+  "llm_rationale": "The passage exhibits a balanced and hedged tone, typical of AI-generated text, with transitional phrases like 'Furthermore' and a reluctance to take a sharp stance.",
+  "stylometric_score": 0.488,
+  "confidence": 0.735,
+  "attribution": "likely_ai"
+}
+{
+  "content_id": "0b6f10d1-8d90-4338-812c-d414cdd3dfbc",
+  "creator_id": "creator-human-demo",
+  "timestamp": "2026-06-30T23:53:24.221419+00:00",
+  "event": "classified",
+  "status": "classified",
+  "llm_score": 0.1,
+  "llm_rationale": "The passage has an informal tone, uses colloquial expressions, and expresses a clear personal opinion, indicating a human-written text.",
+  "stylometric_score": 0.361,
+  "confidence": 0.205,
+  "attribution": "likely_human"
+}
+{
+  "content_id": "c3766511-894f-4e8c-8606-412b5f23fc30",
+  "creator_id": "creator-formal-demo",
+  "timestamp": "2026-06-30T23:53:24.549945+00:00",
+  "event": "classified",
+  "status": "classified",
+  "llm_score": 0.8,
+  "llm_rationale": "The passage exhibits a formal and balanced tone, typical of AI-generated content, with a lack of personal opinion or unique perspective.",
+  "stylometric_score": 0.472,
+  "confidence": 0.669,
+  "attribution": "uncertain"
+}
+{
+  "content_id": "1e125230-452e-48eb-8ae9-35290d7b1d3e",
+  "creator_id": "creator-edited-demo",
+  "timestamp": "2026-06-30T23:53:24.995350+00:00",
+  "event": "classified",
+  "status": "classified",
+  "llm_score": 0.7,
+  "llm_rationale": "The passage exhibits a balanced and neutral tone, with a structured 'on one hand / on the other' framing, which is characteristic of AI-generated text.",
+  "stylometric_score": 0.618,
+  "confidence": 0.667,
+  "attribution": "uncertain"
+}
 ```
 
 ---
 
 ## Known Limitations
 
-<!-- At least one specific content type your system would likely misclassify,
-     tied to a property of your signals — not a generic "needs more data." -->
+**Repetitive, simple-vocabulary poetry.** A villanelle or refrain-heavy poem has low sentence-length variance, low type-token ratio, and even punctuation by design — all three stylometric sub-metrics read "AI" for reasons that have nothing to do with provenance. Signal 1 may rescue it if it recognizes the craft, but if it doesn't, a genuine poem can land in `uncertain` or worse. This is Signal 2's "form, not meaning" blind spot.
 
-_TODO: e.g. a repetitive, simple-vocabulary poem that stylometrics may flag as AI._
+**Formal or non-native-English human writing.** This is the *shared* blind spot: both signals read measured, hedge-heavy, uniformly-polished prose as "AI." The LLM-weighted average can't rescue this case because the signals agree with each other, not because either is wrong on its own. It's the entire reason the `likely_ai` band starts at `0.70` rather than `0.5`, and why the appeal path exists.
+
+**Type-token ratio is length-sensitive.** The TTR normalization bounds (`0.85–0.95`) were calibrated against the ~40–55 word reference inputs, where TTR naturally clusters high. A long, multi-paragraph essay has a structurally lower TTR regardless of who wrote it (more words means more repeated function words), so the same bounds would likely under-score a long human essay's "AI-ness" on this sub-metric and over-score a long AI essay's "human-ness." A length-normalized measure (e.g. MTLD, or TTR computed over a fixed sliding window) would generalize better — out of scope for this project's calibration set.
+
+**Very short submissions (haiku, micro-posts).** Under 25 words or 3 sentences, sentence-variance and TTR are statistical noise rather than signal. Mitigated by a hard guard: short inputs are always forced to `uncertain` regardless of the raw score, rather than reporting a confident verdict built on noise.
 
 ---
 
 ## Spec Reflection
 
-_TODO: one way planning.md helped guide implementation, and one way the implementation diverged from it and why._
+**Where the spec helped directly:** `planning.md`'s exact formula (`confidence = 0.6*llm + 0.4*stylometric`) and fixed thresholds (`0.35` / `0.70`) meant there was never ambiguity about *what* to implement in `scoring.py` — only about getting the inputs to those formulas right. Having the four reference inputs with their *expected* bands pre-written (not just "test it") is what surfaced the TTR-saturation bug — without a concrete "formal-human must not exceed 0.70" assertion to check against, a plausible-but-wrong normalization would have shipped silently.
+
+**Where implementation diverged from the spec:** `planning.md` calls the `0.6/0.4` weights and the stylometric sub-metric weighting "initial values, calibrated in Milestone 4." In practice, M4 calibration never touched the weights or thresholds — they were correct as written. The actual divergence was one level deeper: the **per-metric normalization bounds** (not mentioned as a specific number in the spec) needed adjustment, because TTR's hard-coded `0.40–0.80` range assumed longer text than the reference inputs actually contain. The spec anticipated *that* calibration would be needed; it just turned out to live in the normalization layer rather than the weights.
 
 ---
 
 ## AI Usage
 
-_TODO: at least 2 specific instances — what you directed the AI to do, what it produced, and what you revised or overrode._
+**Instance 1 — Signal 1 (Groq LLM classifier).** Directed the AI to generate `run_llm_signal()` from the `## Detection Signals` (Signal 1) and `## API Surface` sections of `planning.md`, specifying JSON-mode output and a typed `LLMResult` dataclass. The first draft was used close to as-generated, but I required two things the spec demanded that a default implementation wouldn't include on its own: a clamped `0.0–1.0` score (`_clamp01`) and a neutral `0.5` fallback on any parse/network failure, so a broken Groq call can't silently bias a verdict toward either band.
+
+**Instance 2 — Signal 2 + confidence scoring (this milestone).** Directed the AI to generate `run_stylometric_signal()` and the scoring/threshold logic from the `## Detection Signals` (Signal 2), `## Confidence Scoring`, and `## Uncertainty Representation` sections. Per the spec's own M4 verification plan, I checked the generated thresholds against the spec **exactly** (asserted `0.6/0.4` weights and `0.35`/`0.70` bounds in code, not by eye) and ran the four reference inputs end-to-end. This caught a real bug the AI introduced silently: the generated TTR normalization bounds (`0.40–0.80`) saturated every reference input to `1.0`, since real short-text TTR sits at `0.86–0.90` — the metric was contributing nothing while inflating every score. I revised the bounds to `0.85–0.95` based on the actual measured values, documented the length-sensitivity caveat in `config.py`, and re-ran the calibration set to confirm all four inputs land in their intuitive bands before wiring it into `/submit`.
