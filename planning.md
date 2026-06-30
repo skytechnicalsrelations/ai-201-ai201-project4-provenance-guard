@@ -36,3 +36,29 @@ Finally, the **`/submit` endpoint** returns a structured JSON response to the ca
 | Audit log (JSON/SQLite) | Records every classification and appeal as a structured entry, keyed by content_id |
 | `POST /appeal` endpoint | Sets status → `under_review`, logs appeal alongside original decision |
 | `GET /log` endpoint | Surfaces recent audit entries as JSON |
+
+## Detection Signals
+
+The pipeline uses two genuinely independent signals: one **semantic** (an LLM reads the text the way a person would) and one **structural** (math over the text's surface statistics). They fail in different ways, which is exactly why combining them is more informative than either alone.
+
+### Signal 1 — LLM classifier (Groq, `llama-3.3-70b-versatile`)
+
+- **What it measures.** A holistic, semantic judgment of how human- or AI-written the text *reads* — coherence, phrasing, tonal consistency, the presence of the bland, hedge-heavy "assistant voice." The text is sent to Groq with a prompt that asks for a `0.0–1.0` AI-likelihood score (0 = clearly human, 1 = clearly AI) **plus a one-line rationale**. The score feeds the confidence scorer; the rationale is stored in the audit log so a human appeals reviewer can see *why* the model decided what it did.
+- **Why the property differs between human and AI.** Models trained on instruction-following converge on recognizable habits: even pacing, balanced "on one hand / on the other hand" framing, transition words ("Furthermore," "It is important to note"), and a reluctance to take a sharp stance. Human writing carries idiosyncratic voice, uneven emphasis, opinions, and topic-specific knowledge an LLM tends to smooth over. The model has internalized these patterns from vast text, so it can pick up on the *gestalt* that no single hand-coded rule captures.
+- **Blind spot.** It is a probabilistic judgment, not a detector, and it is gameable and unstable: lightly edited AI text (the "I've been thinking about remote work" case) can read as human, while a non-native English speaker or a deliberately formal human can read as AI — the classic **false positive**. It can also be inconsistent run-to-run (temperature, prompt sensitivity), it has no ground truth, and it can be defeated by anyone who prompts an LLM to "write casually." It captures *plausibility of voice*, not provenance.
+
+### Signal 2 — Stylometric heuristics (pure Python)
+
+A single structural score combined from three measurable properties. No model, no network — just arithmetic over the text, which makes it deterministic and independent of Signal 1.
+
+- **What it measures.**
+  1. **Sentence-length variance** — the spread (standard deviation / variance) of word counts across sentences.
+  2. **Type-token ratio (TTR)** — vocabulary diversity: unique words ÷ total words.
+  3. **Punctuation density** — punctuation marks per word (or per sentence), including the *variety* of marks used.
+  These three are normalized and blended into one `0.0–1.0` AI-likelihood score.
+- **Why the property differs between human and AI.** AI prose tends toward **uniformity**: sentences cluster around a similar length, vocabulary is broad but evenly distributed, and punctuation is "correct" and even. Human writing is **bursty and variable**: short punchy sentences next to long ones (high variance), repetition or narrow vocabulary in casual writing (lower TTR), and expressive punctuation — ellipses, dashes, "!!", ALL CAPS, missing periods. So low variance + even punctuation + smoothly diverse vocabulary trends "AI"; high variance + quirky punctuation trends "human."
+- **Blind spot.** It measures *form, not meaning*, so it is fooled by form that doesn't match its assumptions. Short inputs (a few sentences) have too little data for variance/TTR to be stable — the numbers are noisy. It **misclassifies whole genres**: a repetitive, simple-vocabulary poem or a terse listicle looks "uniform" → flagged AI (false positive); a long, polished, carefully-edited human essay also looks uniform → flagged AI; conversely, AI text prompted to be "casual and varied" can mimic human stylometrics. It has zero understanding of whether the content is coherent or true — only how it's shaped.
+
+### Why this pairing
+
+The two signals are independent along the axis that matters: Signal 1 can be right about *voice* when Signal 2 is fooled by *form* (e.g., a varied-but-AI-voiced paragraph), and Signal 2 stays stable when Signal 1 wobbles run-to-run. Their **shared** weakness — both can flag a formal or non-native human as AI — is the false-positive risk the confidence scoring and label thresholds are designed to hedge against, and the appeal path exists precisely for when they're both wrong.
