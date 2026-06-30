@@ -55,12 +55,9 @@ Read `planning.md` (written before implementation) for the full spec, architectu
 
 ## Architecture Overview
 
-<!-- The path a submission takes from input to transparency label.
-     POST /submit → signal 1 (Groq) → signal 2 (stylometrics) → confidence
-     scoring → transparency label → audit log → response.
-     See planning.md for the full diagram. -->
+A creator sends their text to **`POST /submit`** with a `text` and `creator_id`. The request first passes the **rate limiter** (Flask-Limiter), which rejects floods with a `429` before any detection runs. The text then enters the **detection pipeline**, which runs two independent signals: **Signal 1**, a Groq LLM classifier (`llama-3.3-70b-versatile`) that judges the text's human-vs-AI "feel" semantically, and **Signal 2**, pure-Python stylometric heuristics (sentence-length variance, type-token ratio, punctuation density) that measure structural uniformity. Both scores flow into the **confidence scorer**, which combines them into one calibrated confidence value and an attribution band (`likely_ai` / `uncertain` / `likely_human`). The **label generator** maps that band to one of three plain-language **transparency label** variants — the text a reader actually sees. Every decision is written to the **audit log** (keyed by a unique `content_id`), and `/submit` returns `content_id`, attribution, confidence, and label.
 
-_TODO: describe the submission and appeal flows end-to-end._
+**Appeal flow:** a creator calls **`POST /appeal`** with their `content_id` and `creator_reasoning`. The endpoint sets that content's status to `under_review`, logs the appeal alongside the original decision so a human reviewer sees both sides, and confirms receipt. **`GET /log`** exposes recent audit entries as JSON. See [planning.md](planning.md) for the full narrative and architecture diagram.
 
 ---
 
