@@ -190,6 +190,35 @@ Plain-language, non-accusatory tone, with a percentage so the reader has a sense
 
 `{ai_pct}` / `{human_pct}` are filled at response time from the computed `confidence`. The label string returned by `/submit` is the fully-rendered text (numbers already substituted).
 
+## Appeals Workflow
+
+The appeal path exists for the case the system fears most: a real human creator labeled (or leaned) AI. It routes a contested decision to a human — there is **no automated re-classification**.
+
+### Who can appeal
+The **original creator only**. The appeal request carries a `creator_id`, and the system checks it matches the `creator_id` on the original submission; a mismatch is rejected with `403`. (There's no real auth in this project, so this is a light ownership check, not a security boundary — noted as such.)
+
+### What they provide
+- `content_id` — from their `/submit` response.
+- `creator_id` — for the ownership check.
+- `creator_reasoning` — free-text explanation of why they believe the classification is wrong (e.g. "I'm a non-native speaker and write formally").
+
+### What the system does on receipt
+1. Look up the `content_id` in the audit log. Unknown → `404`.
+2. Check `creator_id` matches the original submission. Mismatch → `403`.
+3. Check current status. If already `under_review` → `409` (one appeal per content, keeps the queue clean).
+4. Otherwise **append an `under_review` event** to `logs/audit.jsonl` carrying the `appeal_reasoning`, the timestamp, and a back-reference to the original decision. No score is recomputed.
+5. Return a confirmation. The content's status is now `under_review` (latest-event-wins).
+
+### What gets logged
+A new audit event, alongside the original `classified` event (the original is never overwritten — the full history stays intact):
+```jsonc
+{ "event": "under_review", "content_id": "...", "creator_id": "...",
+  "timestamp": "ISO-8601 UTC", "appeal_reasoning": "...", "status": "under_review" }
+```
+
+### What a reviewer sees
+`GET /appeals` returns the queue of everything currently `under_review`. Each entry puts the **original machine decision** (attribution, confidence, both signal scores, the LLM rationale) **side-by-side with the creator's reasoning**, plus both timestamps — so a human can judge the contested call with full context in one view.
+
 ## Storage
 
 **Backend: append-only JSONL audit log** (`logs/audit.jsonl`). Each line is one structured event. There is no separate database — the log *is* the source of truth.
@@ -222,16 +251,43 @@ Accepts a piece of text for attribution analysis; runs the full pipeline.
 Errors: `400` missing `text`/`creator_id`; `429` rate limit exceeded.
 
 ### `POST /appeal`
-Lets a creator contest a classification. Appends an `under_review` event for the content.
+Lets the original creator contest a classification. Appends an `under_review` event for the content.
 
 ```jsonc
 // request
-{ "content_id": "string (required)", "creator_reasoning": "string (required)" }
+{ "content_id": "string (required)",
+  "creator_id": "string (required)",        // must match the original submission's creator_id
+  "creator_reasoning": "string (required)" }
 
 // 200 response
 { "content_id": "...", "status": "under_review", "message": "Appeal received; the content is now under review." }
 ```
-Errors: `400` missing fields; `404` unknown `content_id`.
+Errors: `400` missing fields; `404` unknown `content_id`; `403` `creator_id` does not match the original submission; `409` content is already `under_review` (one appeal per content).
+
+### `GET /appeals`
+The human reviewer's queue: all content currently `under_review`, each showing the original decision beside the creator's appeal reasoning.
+
+```jsonc
+{
+  "appeals": [
+    {
+      "content_id":        "...",
+      "creator_id":        "...",
+      "submitted_at":      "ISO-8601 UTC",     // original classification time
+      "appealed_at":       "ISO-8601 UTC",     // when the appeal was filed
+      "original_decision": {
+        "attribution":       "likely_ai | uncertain | likely_human",
+        "confidence":        0.0,
+        "llm_score":         0.0,
+        "stylometric_score": 0.0,
+        "llm_rationale":     "one-line model rationale"
+      },
+      "appeal_reasoning":  "creator's stated reasoning",
+      "status":            "under_review"
+    }
+  ]
+}
+```
 
 ### `GET /content/<content_id>`
 Convenience lookup of a single submission's current (folded) state. Not required by the rubric; useful for testing appeals.

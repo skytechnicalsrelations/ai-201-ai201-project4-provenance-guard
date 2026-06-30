@@ -48,7 +48,8 @@ Read `planning.md` (written before implementation) for the full spec, architectu
 | Endpoint | Method | Accepts | Returns |
 |----------|--------|---------|---------|
 | `/submit` | POST | `{ "text": ..., "creator_id": ... }` | `content_id`, `attribution`, `confidence`, `label` |
-| `/appeal` | POST | `{ "content_id": ..., "creator_reasoning": ... }` | confirmation; status → `under_review` |
+| `/appeal` | POST | `{ "content_id": ..., "creator_id": ..., "creator_reasoning": ... }` | confirmation; status → `under_review` |
+| `/appeals` | GET | — | reviewer queue: items `under_review` with original decision + appeal reasoning |
 | `/content/<id>` | GET | — | current folded state for one submission (status + decision) |
 | `/log` | GET | — | most recent structured audit entries |
 
@@ -123,10 +124,12 @@ Percentages are filled at response time: `ai_pct = round(confidence × 100)`, `h
 
 ## Appeals Workflow
 
-<!-- Who can appeal, what they provide, what the system does (status change +
-     logging), and what a human reviewer sees in the appeal queue. -->
+The appeal path is for the error that matters most: a human creator labeled (or leaned) AI. It routes a contested decision to a human — there is **no automated re-classification**.
 
-_TODO: describe the appeal flow and what gets logged._
+- **Who:** the original creator only. The appeal includes `creator_id`, checked against the original submission's `creator_id` (`403` on mismatch). With no real auth here, this is a light ownership check, not a security boundary.
+- **What they provide:** `content_id`, `creator_id`, and free-text `creator_reasoning`.
+- **What the system does:** looks up the content (`404` if unknown), verifies ownership (`403`), rejects a second appeal (`409` — one appeal per content), then appends an `under_review` event to the audit log carrying the appeal reasoning. The original `classified` event is never overwritten, so the full history survives. No score is recomputed.
+- **What a reviewer sees:** `GET /appeals` returns the queue of everything `under_review`, each entry placing the original machine decision (attribution, confidence, both signal scores, LLM rationale) **side-by-side** with the creator's reasoning and both timestamps.
 
 ---
 
