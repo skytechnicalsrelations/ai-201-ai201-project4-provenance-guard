@@ -15,11 +15,11 @@ Both scores flow into the **confidence scorer**, the component that turns two se
 
 The confidence score is then passed to the **label generator**, which maps the score's band to one of three pre-written **transparency label** variants (high-confidence AI, high-confidence human, uncertain). This is the plain-language text a non-technical reader would actually see on the platform. The thresholds are deliberately cautious about calling a human's work AI, because a false positive is the most damaging outcome on a writing platform.
 
-Before the response goes back, every decision is written to the **audit log** (structured JSON / SQLite). The entry records the `content_id` (a unique ID minted for this submission), `creator_id`, timestamp, attribution verdict, the combined confidence, both individual signal scores, and a `status` of `classified`. The `content_id` is the thread that ties everything together later — appeals reference it, and the log is keyed on it.
+Before the response goes back, every decision is written to the **audit log** (an append-only JSONL file, `logs/audit.jsonl`). The entry records the `content_id` (a unique ID minted for this submission), `creator_id`, timestamp, attribution verdict, the combined confidence, both individual signal scores, the LLM rationale, and a `status` of `classified`. The `content_id` is the thread that ties everything together later — appeals reference it, and a content's current status is derived as the most recent event for that `content_id`.
 
 Finally, the **`/submit` endpoint** returns a structured JSON response to the caller containing the `content_id`, attribution result, confidence score, and the transparency label text. That label text is the end of the submission journey — it's what the reader sees.
 
-**Appeal flow.** If a creator believes they were misclassified, they call the **`POST /appeal` endpoint** with the `content_id` from their original response and their `creator_reasoning`. The endpoint looks up the original decision, updates that content's **status** to `under_review`, and writes a new **audit log** entry capturing the appeal reasoning alongside the original classification — so a human reviewer opening the appeal queue sees both the machine's verdict and the creator's side. It returns a confirmation that the appeal was received. (Automated re-classification is intentionally out of scope; the appeal routes a contested case to a human.)
+**Appeal flow.** If a creator believes they were misclassified, they call the **`POST /appeal` endpoint** with the `content_id` from their original response, their `creator_id` (checked against the original submission so only the creator can appeal), and their `creator_reasoning`. The endpoint looks up the original decision, **appends a new `under_review` event** to the audit log capturing the appeal reasoning alongside a reference to the original classification — the content's status becomes `under_review` (latest event wins; the original entry is never overwritten). A human reviewer opening the queue (`GET /appeals`) sees both the machine's verdict and the creator's side. It returns a confirmation that the appeal was received. (Automated re-classification is intentionally out of scope; the appeal routes a contested case to a human.)
 
 **`GET /log`** exposes the most recent audit entries as JSON, so the full history of classifications and appeals is inspectable.
 
@@ -343,3 +343,22 @@ Returns recent audit entries as JSON (for documentation / grading visibility; wo
 
 ### Rate limiting
 Applied to `POST /submit` only (Flask-Limiter). Specific limits and reasoning decided in Milestone 5.
+
+## AI Tool Plan
+
+How each implementation milestone uses an AI tool: which sections of *this* spec I feed it, what I ask it to generate, and how I verify the output before trusting it. The rule throughout: the spec + the Architecture diagram are the context; generated code is reviewed against the spec, never pasted blind.
+
+### M3 — Submission endpoint + first signal
+- **Spec sections provided:** `## Detection Signals` (Signal 1) + `## API Surface` (`POST /submit`, `GET /log`) + `## Storage` + the `## Architecture` diagram.
+- **Ask it to generate:** (1) the Flask app skeleton with the `POST /submit` route and a `GET /log` route, (2) the Signal 1 function — sends text to Groq, parses back `llm_score` (0–1) + a one-line rationale, (3) the JSONL append-log helper.
+- **Verify:** call the Signal 1 function directly on 2–3 inputs and check it returns a float in `[0,1]` plus a rationale string (matches the spec's output shape) before wiring it into the route. Hit `/submit` with the sample curl and confirm the response has `content_id`, `attribution`, placeholder `confidence`/`label`, and that a `classified` event lands in `logs/audit.jsonl`.
+
+### M4 — Second signal + confidence scoring
+- **Spec sections provided:** `## Detection Signals` (Signal 2) + `## Confidence Scoring` + `## Uncertainty Representation` + the diagram.
+- **Ask it to generate:** (1) the Signal 2 function — computes sentence-length variance, type-token ratio, punctuation density, normalizes each to 0–1, equal-weight averages into `stylometric_score`; (2) the scoring function `confidence = 0.6*llm_score + 0.4*stylometric_score` and the band mapping (`<0.35` human, `<0.70` uncertain, else AI).
+- **Verify:** confirm the generated thresholds **exactly** match the spec (AI tools often drift to a 0.5 flip) — correct them if not. Run the four reference inputs (clear-AI, clear-human, formal-human, lightly-edited-AI) and check each lands in its intuitive band; if a clearly-human input scores high, print both signal scores to find which one misbehaves, then recalibrate weights/normalization — not the prose.
+
+### M5 — Production layer
+- **Spec sections provided:** `## Transparency Label Design` (the three variants) + `## Appeals Workflow` + `## API Surface` (`POST /appeal`, `GET /appeals`) + the diagram.
+- **Ask it to generate:** (1) the label-generation function mapping a `confidence` to the correct variant text with `{ai_pct}`/`{human_pct}` substituted; (2) the `POST /appeal` endpoint (ownership check → `403`, repeat-appeal → `409`, append `under_review` event) and the `GET /appeals` queue; (3) the Flask-Limiter setup on `/submit`.
+- **Verify:** ask it to print all three label variants and confirm the text is verbatim-identical to the spec. Submit inputs that produce each band and check all three labels are reachable. File an appeal with the right `creator_id` (expect `under_review` in the log) and a wrong one (expect `403`), then re-appeal (expect `409`). Run the 12-request rate-limit loop and capture the `429`s.
