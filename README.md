@@ -63,13 +63,26 @@ A creator sends their text to **`POST /submit`** with a `text` and `creator_id`.
 
 ## Detection Signals
 
-<!-- For each signal: what property it measures, why that property differs
-     between human and AI writing, and what it can't capture (its blind spot). -->
+The pipeline uses two genuinely independent signals: one **semantic**, one **structural**. They fail in different ways, which is why combining them beats either alone. (Full analysis in [planning.md](planning.md#detection-signals).)
 
-1. **LLM-based classification (Groq, `llama-3.3-70b-versatile`)** — _TODO: what it captures (semantic/stylistic coherence) and its blind spot._
-2. **Stylometric heuristics (pure Python)** — _TODO: which metrics (sentence-length variance, type-token ratio, punctuation density), why they differ, and the blind spot._
+### Signal 1 — LLM classifier (Groq, `llama-3.3-70b-versatile`)
 
-_Why this pairing: one signal is semantic, one is structural — genuinely independent, so the combination is more informative than either alone._
+- **Measures:** a holistic, semantic read of how human- or AI-written the text *sounds* — coherence, phrasing, the bland hedge-heavy "assistant voice." Returns a `0.0–1.0` AI-likelihood score plus a one-line rationale (the rationale is stored in the audit log for appeals review).
+- **Why it differs:** instruction-tuned models converge on recognizable habits — even pacing, balanced framing, transition words ("Furthermore," "It is important to note"), reluctance to take a stance. Human writing carries idiosyncratic voice, uneven emphasis, and topic-specific knowledge the model smooths over.
+- **Blind spot:** it's a probabilistic judgment, not proof of provenance, and it's gameable and run-to-run unstable. Lightly edited AI can read as human; a non-native or deliberately formal human can read as AI — the key **false positive**. It captures *plausibility of voice*, not where the text actually came from.
+
+### Signal 2 — Stylometric heuristics (pure Python)
+
+One structural score blended from three measurable properties — deterministic, no model, no network:
+
+1. **Sentence-length variance** — spread of word counts across sentences.
+2. **Type-token ratio** — vocabulary diversity (unique words ÷ total).
+3. **Punctuation density** — punctuation marks per word, including the variety of marks used.
+
+- **Why it differs:** AI prose trends toward **uniformity** (similar sentence lengths, evenly distributed vocabulary, "correct" even punctuation); human writing is **bursty** (short sentences beside long ones, repetition or narrow vocabulary, expressive punctuation like "…", "—", "!!").
+- **Blind spot:** it measures *form, not meaning*. Short inputs are too small for stable statistics, and it misclassifies whole genres — a repetitive, simple-vocabulary poem or a polished human essay both look "uniform" and get flagged AI, while AI prompted to write "casually" can mimic human stylometrics.
+
+**Why this pairing:** one signal is semantic, one is structural — independent where it matters, so Signal 1 can be right about voice when Signal 2 is fooled by form, and vice versa. Their *shared* weakness — both can flag formal or non-native humans as AI — is the false-positive risk the confidence thresholds and appeal path are designed to hedge.
 
 ---
 
