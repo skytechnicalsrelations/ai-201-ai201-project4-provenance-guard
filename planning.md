@@ -358,6 +358,24 @@ How each implementation milestone uses an AI tool: which sections of *this* spec
 - **Ask it to generate:** (1) the Signal 2 function — computes sentence-length variance, type-token ratio, punctuation density, normalizes each to 0–1, equal-weight averages into `stylometric_score`; (2) the scoring function `confidence = 0.6*llm_score + 0.4*stylometric_score` and the band mapping (`<0.35` human, `<0.70` uncertain, else AI).
 - **Verify:** confirm the generated thresholds **exactly** match the spec (AI tools often drift to a 0.5 flip) — correct them if not. Run the four reference inputs (clear-AI, clear-human, formal-human, lightly-edited-AI) and check each lands in its intuitive band; if a clearly-human input scores high, print both signal scores to find which one misbehaves, then recalibrate weights/normalization — not the prose.
 
+### Test Inputs (calibration set for M4)
+
+The four deliberately-chosen inputs used to calibrate scoring and confirm the bands. Each has an expected band; if it lands elsewhere, recalibrate weights/normalization (not the prose).
+
+1. **Clearly AI-generated → expect `likely_ai`:**
+   > "Artificial intelligence represents a transformative paradigm shift in modern society. It is important to note that while the benefits of AI are numerous, it is equally essential to consider the ethical implications. Furthermore, stakeholders across various sectors must collaborate to ensure responsible deployment."
+
+2. **Clearly human-written → expect `likely_human`:**
+   > "ok so i finally tried that new ramen place downtown and honestly? underwhelming. the broth was fine but they put WAY too much sodium in it and i was thirsty for like three hours after. my friend got the spicy version and said it was better. probably won't go back unless someone drags me there"
+
+3. **Borderline — formal human writing → expect `uncertain` (not `likely_ai`):**
+   > "The relationship between monetary policy and asset price inflation has been extensively studied in the literature. Central banks face a fundamental tension between their mandate for price stability and the unintended consequences of prolonged low interest rates on equity and real estate valuations."
+
+4. **Borderline — lightly edited AI output → expect `uncertain` (mid-range):**
+   > "I've been thinking a lot about remote work lately. There are genuine tradeoffs — flexibility and no commute on one side, isolation and blurred work-life boundaries on the other. Studies show productivity varies widely by individual and role type."
+
+Input 3 is the critical false-positive test: a formal human must **not** be confidently called AI. If it scores `≥ 0.70`, the scoring is too aggressive — lower the stylometric weight or widen its normalization.
+
 ### M5 — Production layer
 - **Spec sections provided:** `## Transparency Label Design` (the three variants) + `## Appeals Workflow` + `## API Surface` (`POST /appeal`, `GET /appeals`) + the diagram.
 - **Ask it to generate:** (1) the label-generation function mapping a `confidence` to the correct variant text with `{ai_pct}`/`{human_pct}` substituted; (2) the `POST /appeal` endpoint (ownership check → `403`, repeat-appeal → `409`, append `under_review` event) and the `GET /appeals` queue; (3) the Flask-Limiter setup on `/submit`.
