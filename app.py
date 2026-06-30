@@ -10,8 +10,9 @@ what is not computed yet.
 import uuid
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
+from apidocs import OPENAPI_SPEC, SWAGGER_HTML
 from auditor import AuditEvent, append_event, read_events
 from config import AI_THRESHOLD, HUMAN_THRESHOLD
 from signals import run_llm_signal
@@ -91,6 +92,18 @@ def get_log():
     """Return recent audit entries as JSON. Optional ?limit=N."""
     limit = request.args.get("limit", type=int)
     return jsonify({"entries": read_events(limit=limit)})
+
+
+@app.get("/openapi.json")
+def openapi_spec():
+    """Machine-readable OpenAPI 3 spec consumed by the Swagger UI page."""
+    return jsonify(OPENAPI_SPEC)
+
+
+@app.get("/docs")
+def docs():
+    """Interactive Swagger UI for trying the API in the browser."""
+    return Response(SWAGGER_HTML, mimetype="text/html")
 
 
 if __name__ == "__main__":
