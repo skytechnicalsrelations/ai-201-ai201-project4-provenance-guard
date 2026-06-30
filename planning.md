@@ -27,31 +27,46 @@ Finally, the **`/submit` endpoint** returns a structured JSON response to the ca
 
 Two flows. **Submission** (top): raw text enters `/submit`, passes the rate limiter, runs through both detection signals, gets combined into a calibrated confidence score, mapped to a transparency label, written to the audit log, and returned to the caller. **Appeal** (bottom): a creator references the `content_id` from their submission, the system appends an `under_review` event to the same audit log, and confirms receipt. Each arrow is labeled with what passes between components.
 
-```mermaid
-flowchart TD
-    %% ---------- Submission flow ----------
-    Creator([Creator / Platform]) -->|"raw text + creator_id"| Submit["POST /submit"]
-    Submit -->|"check client quota"| RL{{"Rate limiter<br/>(Flask-Limiter)"}}
-    RL -->|"429 too many requests"| Reject([Rejected])
-    RL -->|"raw text (under limit)"| S1["Signal 1<br/>Groq LLM classifier"]
-    RL -->|"raw text (under limit)"| S2["Signal 2<br/>Stylometric heuristics"]
-    S1 -->|"llm_score 0–1 + rationale"| Scorer["Confidence scorer"]
-    S2 -->|"stylometric_score 0–1"| Scorer
-    Scorer -->|"combined confidence 0–1<br/>+ attribution band"| Label["Label generator"]
-    Label -->|"label text + confidence + attribution"| Audit[("Audit log<br/>logs/audit.jsonl")]
-    Audit -->|"classified event written"| Resp["Response builder"]
-    Resp -->|"content_id, attribution,<br/>confidence, label text"| Creator
+```
+SUBMISSION FLOW
+  1. Creator
+        | raw text + creator_id
+        v
+  2. POST /submit
+        | check client quota
+        v
+  3. Rate limiter (Flask-Limiter)  -> 429 Too Many Requests if over limit
+        | raw text (fan-out to both signals)
+        v
+  4. Signal 1: Groq LLM classifier  -> llm_score 0-1 + one-line rationale
+     Signal 2: Stylometric heuristics -> stylometric_score 0-1
+        | both scores
+        v
+  5. Confidence scorer              -> combined confidence 0-1 + attribution band
+        | confidence + attribution
+        v
+  6. Label generator               -> transparency label text
+        | label text + confidence + scores
+        v
+  7. Audit log (logs/audit.jsonl)  -> writes 'classified' event
+        |
+        v
+  8. Response  -> content_id, attribution, confidence, label
 
-    %% ---------- Appeal flow ----------
-    Creator2([Creator]) -->|"content_id + creator_reasoning"| Appeal["POST /appeal"]
-    Appeal -->|"look up content_id"| Audit2[("Audit log<br/>logs/audit.jsonl")]
-    Audit2 -->|"404 if unknown id"| Reject2([Rejected])
-    Appeal -->|"append under_review event<br/>+ appeal_reasoning"| Audit2
-    Audit2 -->|"status now under_review"| RespA["Response builder"]
-    RespA -->|"content_id, status,<br/>confirmation message"| Creator2
+APPEAL FLOW
+  1. Creator
+        | content_id + creator_reasoning
+        v
+  2. POST /appeal                  -> 404 if content_id unknown
+        | append event
+        v
+  3. Audit log (logs/audit.jsonl)  -> appends 'under_review' event + appeal_reasoning
+        | status now under_review
+        v
+  4. Response  -> content_id, status=under_review, confirmation message
 ```
 
-> Note the fan-out: the rate limiter passes the same raw text to **both** signals independently — Signal 2 does not consume Signal 1's output. They run separately (one semantic, one structural) and only meet at the confidence scorer, which is what makes them independent signals rather than a chain.
+> Note the fan-out at step 4: the rate limiter passes the same raw text to **both** signals independently — Signal 2 does not consume Signal 1's output. They run separately (one semantic, one structural) and only meet at the confidence scorer, which is what makes them independent signals rather than a chain.
 
 ### Components at a glance
 
