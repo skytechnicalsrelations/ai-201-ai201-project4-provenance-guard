@@ -54,7 +54,9 @@ OPENAPI_SPEC = {
                         "description": "Classification result",
                         "content": {
                             "application/json": {
-                                "schema": {"$ref": "#/components/schemas/SubmitResponse"}
+                                "schema": {
+                                    "$ref": "#/components/schemas/SubmitResponse"
+                                }
                             }
                         },
                     },
@@ -104,7 +106,10 @@ OPENAPI_SPEC = {
                 "required": ["text", "creator_id"],
                 "properties": {
                     "text": {"type": "string", "description": "Raw text to analyze"},
-                    "creator_id": {"type": "string", "description": "Identifier of the submitter"},
+                    "creator_id": {
+                        "type": "string",
+                        "description": "Identifier of the submitter",
+                    },
                 },
             },
             "SubmitResponse": {
@@ -116,7 +121,11 @@ OPENAPI_SPEC = {
                         "enum": ["likely_ai", "uncertain", "likely_human"],
                         "nullable": True,
                     },
-                    "confidence": {"type": "number", "format": "float", "nullable": True},
+                    "confidence": {
+                        "type": "number",
+                        "format": "float",
+                        "nullable": True,
+                    },
                     "label": {"type": "string"},
                 },
             },
@@ -127,7 +136,10 @@ OPENAPI_SPEC = {
                     "creator_id": {"type": "string"},
                     "timestamp": {"type": "string", "format": "date-time"},
                     "event": {"type": "string", "enum": ["classified", "under_review"]},
-                    "status": {"type": "string", "enum": ["classified", "under_review"]},
+                    "status": {
+                        "type": "string",
+                        "enum": ["classified", "under_review"],
+                    },
                     "llm_score": {"type": "number", "nullable": True},
                     "llm_rationale": {"type": "string", "nullable": True},
                     "stylometric_score": {"type": "number", "nullable": True},
