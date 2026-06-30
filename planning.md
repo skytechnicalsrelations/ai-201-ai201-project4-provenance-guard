@@ -62,3 +62,88 @@ A single structural score combined from three measurable properties. No model, n
 ### Why this pairing
 
 The two signals are independent along the axis that matters: Signal 1 can be right about *voice* when Signal 2 is fooled by *form* (e.g., a varied-but-AI-voiced paragraph), and Signal 2 stays stable when Signal 1 wobbles run-to-run. Their **shared** weakness — both can flag a formal or non-native human as AI — is the false-positive risk the confidence scoring and label thresholds are designed to hedge against, and the appeal path exists precisely for when they're both wrong.
+
+## Storage
+
+**Backend: append-only JSONL audit log** (`logs/audit.jsonl`). Each line is one structured event. There is no separate database — the log *is* the source of truth.
+
+- A `/submit` writes one `classified` event.
+- An `/appeal` appends one `under_review` event referencing the same `content_id`.
+- **The current status / decision for a `content_id` is the most recent event for it** ("latest event wins"). Status is *derived* by folding the log, not stored as a mutable field. Any reader (`GET /content/<id>`, the appeal lookup) must apply this rule consistently.
+
+This keeps the log immutable and auditable (you can see the full history of a contested decision) at the cost of having to reduce events to get "current state." Acceptable for this project's scale; a production system would likely move to SQLite for indexed lookups.
+
+## API Surface
+
+The contract every other component implements. Three required endpoints plus one convenience lookup.
+
+### `POST /submit`
+Accepts a piece of text for attribution analysis; runs the full pipeline.
+
+```jsonc
+// request
+{ "text": "string (required)", "creator_id": "string (required)" }
+
+// 200 response  (lean — internal scores live in the audit log, not here)
+{
+  "content_id":  "uuid string",
+  "attribution": "likely_ai | uncertain | likely_human",
+  "confidence":  0.0,            // float 0–1
+  "label":       "transparency label text shown to readers"
+}
+```
+Errors: `400` missing `text`/`creator_id`; `429` rate limit exceeded.
+
+### `POST /appeal`
+Lets a creator contest a classification. Appends an `under_review` event for the content.
+
+```jsonc
+// request
+{ "content_id": "string (required)", "creator_reasoning": "string (required)" }
+
+// 200 response
+{ "content_id": "...", "status": "under_review", "message": "Appeal received; the content is now under review." }
+```
+Errors: `400` missing fields; `404` unknown `content_id`.
+
+### `GET /content/<content_id>`
+Convenience lookup of a single submission's current (folded) state. Not required by the rubric; useful for testing appeals.
+
+```jsonc
+// 200 response
+{
+  "content_id":  "...",
+  "creator_id":  "...",
+  "attribution": "likely_ai | uncertain | likely_human",
+  "confidence":  0.0,
+  "status":      "classified | under_review"   // latest event wins
+}
+```
+Errors: `404` unknown `content_id`.
+
+### `GET /log`
+Returns recent audit entries as JSON (for documentation / grading visibility; would require auth in production).
+
+```jsonc
+// optional query: ?limit=N
+{
+  "entries": [
+    {
+      "content_id":        "...",
+      "creator_id":        "...",
+      "timestamp":         "ISO-8601 UTC",
+      "event":             "classified | under_review",
+      "attribution":       "likely_ai | uncertain | likely_human",
+      "confidence":        0.0,
+      "llm_score":         0.0,         // signal 1
+      "stylometric_score": 0.0,         // signal 2
+      "llm_rationale":     "one-line model rationale",
+      "appeal_reasoning":  "present only on under_review events",
+      "status":            "classified | under_review"
+    }
+  ]
+}
+```
+
+### Rate limiting
+Applied to `POST /submit` only (Flask-Limiter). Specific limits and reasoning decided in Milestone 5.

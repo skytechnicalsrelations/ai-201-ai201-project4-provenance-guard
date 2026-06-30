@@ -49,7 +49,10 @@ Read `planning.md` (written before implementation) for the full spec, architectu
 |----------|--------|---------|---------|
 | `/submit` | POST | `{ "text": ..., "creator_id": ... }` | `content_id`, `attribution`, `confidence`, `label` |
 | `/appeal` | POST | `{ "content_id": ..., "creator_reasoning": ... }` | confirmation; status → `under_review` |
+| `/content/<id>` | GET | — | current folded state for one submission (status + decision) |
 | `/log` | GET | — | most recent structured audit entries |
+
+Storage is an **append-only JSONL audit log** (`logs/audit.jsonl`) — the log is the source of truth, and a submission's current status is the most recent event for its `content_id`. Full contract and field shapes in [planning.md](planning.md#api-surface).
 
 ---
 
