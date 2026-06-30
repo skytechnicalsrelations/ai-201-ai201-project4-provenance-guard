@@ -165,6 +165,31 @@ likely_ai    : confidence >= 0.70
 2. `confidence = 0.6 * llm_score + 0.4 * stylometric_score`.
 3. **Empirical calibration (Milestone 4):** run the four reference inputs (clear-AI, clear-human, formal-human, lightly-edited-AI) through the pipeline and confirm each lands in its intuitively-correct band. If not, adjust the signal weights and/or the stylometric normalization bounds — *not* the prose — until the scores match intuition, and document the adjustment. The thresholds above stay fixed; calibration moves the scores, not the bands.
 
+## Transparency Label Design
+
+Plain-language, non-accusatory tone, with a percentage so the reader has a sense of strength without raw jargon. The label varies by attribution band. Tone deliberately hedges the AI verdict (it's the damaging one).
+
+**Percentage shown is band-relative** so the number always points *toward the stated verdict*:
+- `likely_ai` → `ai_pct = round(confidence * 100)`
+- `likely_human` → `human_pct = round((1 - confidence) * 100)` (a reader should never see a low number next to "human-written")
+- `uncertain` → `ai_pct = round(confidence * 100)`, framed as a lean, not a call (lands 35–69%)
+
+### The three variants (exact text)
+
+**High-confidence AI** (`confidence >= 0.70`):
+> 🤖 **Likely AI-generated — about {ai_pct}% confidence**
+> Our analysis suggests this text was probably created with significant AI assistance. This is an automated estimate, not a certainty.
+
+**High-confidence human** (`confidence < 0.35`):
+> ✍️ **Likely human-written — about {human_pct}% confidence**
+> Our analysis found no strong signs of AI generation in this text.
+
+**Uncertain** (`0.35 <= confidence < 0.70`):
+> ❔ **Attribution uncertain — about {ai_pct}% likely AI**
+> We couldn't confidently tell whether this was written by a person or AI, so we're not making a call. Treat the result as inconclusive.
+
+`{ai_pct}` / `{human_pct}` are filled at response time from the computed `confidence`. The label string returned by `/submit` is the fully-rendered text (numbers already substituted).
+
 ## Storage
 
 **Backend: append-only JSONL audit log** (`logs/audit.jsonl`). Each line is one structured event. There is no separate database — the log *is* the source of truth.

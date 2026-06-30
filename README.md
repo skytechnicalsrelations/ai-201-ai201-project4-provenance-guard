@@ -107,15 +107,17 @@ _TODO: explain the combination/weighting and calibration approach._
 
 ## Transparency Label
 
-<!-- The exact verbatim text shown to a reader for each of the three variants. -->
+The label shown to readers is plain-language and non-accusatory, with a band-relative percentage so the number always points *toward* the stated verdict (a "human-written" label never shows a low number). The label varies by confidence band — the exact text each variant displays:
 
-| Variant | Confidence range | Label text |
-|---------|------------------|------------|
-| High-confidence AI | _TODO_ | _TODO: verbatim text_ |
-| High-confidence human | _TODO_ | _TODO: verbatim text_ |
-| Uncertain | _TODO_ | _TODO: verbatim text_ |
+| Variant | Confidence range | Label text (verbatim) |
+|---------|------------------|------------------------|
+| **High-confidence AI** | `confidence ≥ 0.70` | 🤖 **Likely AI-generated — about {ai_pct}% confidence**<br>Our analysis suggests this text was probably created with significant AI assistance. This is an automated estimate, not a certainty. |
+| **High-confidence human** | `confidence < 0.35` | ✍️ **Likely human-written — about {human_pct}% confidence**<br>Our analysis found no strong signs of AI generation in this text. |
+| **Uncertain** | `0.35 ≤ confidence < 0.70` | ❔ **Attribution uncertain — about {ai_pct}% likely AI**<br>We couldn't confidently tell whether this was written by a person or AI, so we're not making a call. Treat the result as inconclusive. |
 
-> A false positive (labeling a human's work as AI-generated) is worse than a false negative on a writing platform — the labels and thresholds are designed to reflect that asymmetry.
+Percentages are filled at response time: `ai_pct = round(confidence × 100)`, `human_pct = round((1 − confidence) × 100)`. The `/submit` response returns the fully-rendered label string with numbers already substituted.
+
+> A false positive (labeling a human's work as AI-generated) is worse than a false negative on a writing platform. The AI band starts high (≥ 0.70) and the AI label hedges ("probably," "an estimate, not a certainty") to reflect that asymmetry.
 
 ---
 
