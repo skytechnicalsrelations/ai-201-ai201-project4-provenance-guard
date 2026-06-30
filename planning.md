@@ -140,7 +140,30 @@ stylometric_score = mean(norm_sentence_length_variance,
 Equal weighting keeps it transparent and easy to document; per-metric weighting is a possible M4 refinement if one metric proves noisy.
 
 ### False-positive asymmetry → lives in the thresholds
-We chose LLM-weighted averaging rather than disagreement-aware blending, so the hedge against the worst error (calling a human's work AI) is **not** in the combination — it is in **where the band thresholds sit**. The "likely AI" band starts *high* (provisionally `≥ 0.70`) so the system is reluctant to accuse, while leaving a wide "uncertain" middle. Exact thresholds are pinned with the transparency label variants.
+We chose LLM-weighted averaging rather than disagreement-aware blending, so the hedge against the worst error (calling a human's work AI) is **not** in the combination — it is in **where the band thresholds sit** (below).
+
+## Uncertainty Representation
+
+### What a given score means
+The thresholds turn the continuous `confidence` (AI-likelihood) into three attribution bands:
+
+```
+0.0          0.35              0.70          1.0
+ |--HUMAN-----|----UNCERTAIN----|-----AI------|
+
+likely_human : confidence < 0.35
+uncertain    : 0.35 <= confidence < 0.70
+likely_ai    : confidence >= 0.70
+```
+
+- **`0.6` → `uncertain`.** It sits in the *upper* part of the uncertain band: the text leans AI, but the system is **not confident enough to accuse**. The label says "we're not sure," not "this is AI." This is the deliberate consequence of the false-positive asymmetry.
+- The **uncertain band is wide (0.35–0.70)** on purpose. The "likely AI" band starts *high* (`≥ 0.70`) so the system is reluctant to call a human's work AI; the cost of a false "uncertain" (mild) is far lower than a false "likely AI" (damaging to a real creator).
+- The bands are **not symmetric around 0.5** — there is no clean midpoint flip. That is what makes a `0.51` ("uncertain") read very differently to a user than a `0.95` ("likely AI").
+
+### How raw outputs become a calibrated score
+1. Each stylometric metric is normalized to `0–1` (higher = more AI-like) and equal-weight averaged → `stylometric_score`.
+2. `confidence = 0.6 * llm_score + 0.4 * stylometric_score`.
+3. **Empirical calibration (Milestone 4):** run the four reference inputs (clear-AI, clear-human, formal-human, lightly-edited-AI) through the pipeline and confirm each lands in its intuitively-correct band. If not, adjust the signal weights and/or the stylometric normalization bounds — *not* the prose — until the scores match intuition, and document the adjustment. The thresholds above stay fixed; calibration moves the scores, not the bands.
 
 ## Storage
 
