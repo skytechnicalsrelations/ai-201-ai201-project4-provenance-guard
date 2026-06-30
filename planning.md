@@ -219,6 +219,19 @@ A new audit event, alongside the original `classified` event (the original is ne
 ### What a reviewer sees
 `GET /appeals` returns the queue of everything currently `under_review`. Each entry puts the **original machine decision** (attribution, confidence, both signal scores, the LLM rationale) **side-by-side with the creator's reasoning**, plus both timestamps — so a human can judge the contested call with full context in one view.
 
+## Anticipated Edge Cases
+
+Specific content types this system handles poorly, each tied to a concrete property of a signal — not generic "detection is imperfect." These motivate the high AI threshold and the appeal path.
+
+### 1. Repetitive, simple-vocabulary poetry
+A villanelle, nursery rhyme, or refrain-heavy poem has **low sentence-length variance** (lines are similar length), **low type-token ratio** (words repeat by design), and **even punctuation**. All three stylometric metrics point the same way → `stylometric_score` reads strongly AI. This is Signal 2's "form, not meaning" blind spot: it mistakes deliberate poetic structure for machine uniformity. The LLM (Signal 1) may recognize it as human craft and pull the combined score down, but if it doesn't, a genuine human poem can land in `uncertain` or near the AI threshold — a **false positive on creative work**, exactly the platform this is built for.
+
+### 2. Formal or non-native-English human writing
+Academic prose, legal/financial writing, or a fluent non-native speaker writing carefully tends to be **uniform, polished, and hedge-heavy** — the same surface qualities the system reads as AI. Here the two signals **don't disagree**: stylometrics sees low variance and Signal 1 sees the measured, balanced "assistant" register. This is the *shared* blind spot, so the LLM-weighted average can't rescue it, and it produces the worst error — leaning a real creator's work toward AI. This case is the entire reason the `likely_ai` band starts at `0.70` and the appeal path exists; the system is designed to land these in `uncertain` rather than accuse.
+
+### 3. Very short submissions
+A haiku, a couplet, a two-line micro-post: with only 1–3 sentences, **sentence-length variance and TTR have too little data to be meaningful** — variance over two sentences is statistical noise, and TTR is near 1.0 simply because almost every word is unique in a tiny sample. `stylometric_score` becomes unreliable, swinging on essentially random surface features, and Signal 1 also has little to judge. The combined confidence is untrustworthy regardless of which band it lands in. *Mitigation:* treat very short inputs (e.g. under a minimum word/sentence count) as inherently low-confidence and bias them toward `uncertain` rather than reporting a confident verdict — flagged as a calibration/guard to add.
+
 ## Storage
 
 **Backend: append-only JSONL audit log** (`logs/audit.jsonl`). Each line is one structured event. There is no separate database — the log *is* the source of truth.
