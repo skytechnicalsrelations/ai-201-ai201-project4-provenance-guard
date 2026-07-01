@@ -382,3 +382,11 @@ Input 3 is the critical false-positive test: a formal human must **not** be conf
 - **Spec sections provided:** `## Transparency Label Design` (the three variants) + `## Appeals Workflow` + `## API Surface` (`POST /appeal`, `GET /appeals`) + the diagram.
 - **Ask it to generate:** (1) the label-generation function mapping a `confidence` to the correct variant text with `{ai_pct}`/`{human_pct}` substituted; (2) the `POST /appeal` endpoint (ownership check → `403`, repeat-appeal → `409`, append `under_review` event) and the `GET /appeals` queue; (3) the Flask-Limiter setup on `/submit`.
 - **Verify:** ask it to print all three label variants and confirm the text is verbatim-identical to the spec. Submit inputs that produce each band and check all three labels are reachable. File an appeal with the right `creator_id` (expect `under_review` in the log) and a wrong one (expect `403`), then re-appeal (expect `409`). Run the 12-request rate-limit loop and capture the `429`s.
+
+**M5 outcome:** All endpoints implemented and verified:
+- `generate_label()` produces all three variants with exact text match to spec
+- `POST /appeal` correctly handles all five error cases (400, 404, 403, 409) and happy path (200)
+- `GET /appeals` returns review queue pairing original decisions with appeal reasoning
+- `GET /content/<content_id>` returns current folded state with latest-event-wins
+- Flask-Limiter configured with `10 per minute; 100 per day` on `/submit`
+- Audit log tested: verified classified and under_review events append correctly, with full history preserved

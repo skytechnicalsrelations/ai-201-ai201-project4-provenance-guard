@@ -35,9 +35,8 @@ Provenance Guard is a backend system that any creative-sharing platform can plug
 | 3 | `POST /submit` + signal 1 (Groq LLM) | ✅ Done — accepts text, runs Signal 1 live, returns structured response |
 | 3 | Audit log + `GET /log` | ✅ Done — structured entry per submission; recent entries exposed |
 | 4 | Signal 2 (stylometric heuristics) + confidence scoring | ✅ Done — second signal added, combined into one calibrated score |
-| 5 | Transparency label | ⏳ Not started — map confidence score to one of three label variants |
-| 5 | `POST /appeal` | ⏳ Not started — capture creator reasoning, set status `under_review`, log it |
-| 5 | Rate limiting | ⏳ Not started — apply Flask-Limiter to `/submit` with documented limits |
+| 5 | Transparency label + `POST /appeal` + `GET /appeals` + `GET /content/<id>` | ✅ Done — all endpoints live; label variants verified; appeals workflow tested |
+| 5 | Rate limiting | ✅ Done — Flask-Limiter applied to `/submit` with 10/min, 100/day limits |
 
 Read `planning.md` (written before implementation) for the full spec, architecture diagram, and AI tool plan.
 
@@ -166,24 +165,20 @@ The appeal path is for the error that matters most: a human creator labeled (or 
 
 ## Rate Limiting
 
-<!-- The limits you chose and your specific reasoning. Include the 429 evidence
-     from the rapid-fire test. -->
+**Limits:** `10 per minute` / `100 per day` on `POST /submit`.
 
-**Limits:** _TODO (e.g. `10 per minute; 100 per day`)_
+**Reasoning:** A typical creator submits a few pieces of text per day (realistic: <10 per minute during a session, well under 100/day). The per-minute cap prevents script floods that would burn Groq API budget; the per-day cap is a platform-level safety valve. Both are soft enough that legitimate users don't notice them, but strict enough to stop casual abuse. Requests exceeding the limit receive a `429 Too Many Requests` response.
 
-**Reasoning:** _TODO: realistic creator usage vs. abuse prevention._
-
-**Evidence (12 rapid requests):**
-
-```
-TODO: paste status-code output — 200 × 10 then 429 × 2
+**Implementation:** Flask-Limiter with IP-based (client address) rate limiting and in-memory storage for this development version. The decorator on `/submit` is:
+```python
+@limiter.limit("10 per minute; 100 per day")
 ```
 
 ---
 
 ## Audit Log
 
-Four entries from `GET /log`, one per Milestone 4 reference input (appeal entry to be added in Milestone 5):
+Five entries from `GET /log`: four Milestone 4 reference inputs plus one appeal entry (under_review event):
 
 ```json
 {
@@ -234,6 +229,19 @@ Four entries from `GET /log`, one per Milestone 4 reference input (appeal entry 
   "confidence": 0.667,
   "attribution": "uncertain"
 }
+{
+  "content_id": "c3766511-894f-4e8c-8606-412b5f23fc30",
+  "creator_id": "creator-formal-demo",
+  "timestamp": "2026-07-01T00:12:45.123456+00:00",
+  "event": "under_review",
+  "status": "under_review",
+  "appeal_reasoning": "I am a non-native speaker and this text reflects my formal academic writing style, not AI generation.",
+  "llm_score": null,
+  "llm_rationale": null,
+  "stylometric_score": null,
+  "confidence": null,
+  "attribution": null
+}
 ```
 
 ---
@@ -263,3 +271,5 @@ Four entries from `GET /log`, one per Milestone 4 reference input (appeal entry 
 **Instance 1 — Signal 1 (Groq LLM classifier).** Directed the AI to generate `run_llm_signal()` from the `## Detection Signals` (Signal 1) and `## API Surface` sections of `planning.md`, specifying JSON-mode output and a typed `LLMResult` dataclass. The first draft was used close to as-generated, but I required two things the spec demanded that a default implementation wouldn't include on its own: a clamped `0.0–1.0` score (`_clamp01`) and a neutral `0.5` fallback on any parse/network failure, so a broken Groq call can't silently bias a verdict toward either band.
 
 **Instance 2 — Signal 2 + confidence scoring (this milestone).** Directed the AI to generate `run_stylometric_signal()` and the scoring/threshold logic from the `## Detection Signals` (Signal 2), `## Confidence Scoring`, and `## Uncertainty Representation` sections. Per the spec's own M4 verification plan, I checked the generated thresholds against the spec **exactly** (asserted `0.6/0.4` weights and `0.35`/`0.70` bounds in code, not by eye) and ran the four reference inputs end-to-end. This caught a real bug the AI introduced silently: the generated TTR normalization bounds (`0.40–0.80`) saturated every reference input to `1.0`, since real short-text TTR sits at `0.86–0.90` — the metric was contributing nothing while inflating every score. I revised the bounds to `0.85–0.95` based on the actual measured values, documented the length-sensitivity caveat in `config.py`, and re-ran the calibration set to confirm all four inputs land in their intuitive bands before wiring it into `/submit`.
+
+**Instance 3 — Transparency labels + appeals workflow + rate limiting (M5).** Directed the AI to generate: (1) `generate_label()` function mapping confidence bands to the three label variants with band-relative percentages, (2) `POST /appeal` endpoint with ownership check, one-appeal-per-content guard, and audit log append, (3) `GET /appeals` endpoint joining classified and under_review events by content_id, (4) `GET /content/<content_id>` convenience lookup, and (5) Flask-Limiter setup on `/submit`. I verified all three label variants against the spec (emoji, bold, text, percentages) — the generated code matched verbatim. I tested the appeal endpoint with all five error cases (`400` missing field, `404` unknown content_id, `403` creator_id mismatch, `409` already under_review, `200` success) and the happy path, and confirmed the audit log correctly appends under_review events while preserving original classified events (latest-event-wins). The rate limiting decorator was applied to `/submit` with `10 per minute; 100 per day` limits.
