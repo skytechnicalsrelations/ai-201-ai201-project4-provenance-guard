@@ -114,6 +114,33 @@ The four reference inputs were run through the live pipeline to validate the ban
 | Formal human (false-positive test) | 0.80 | 0.47 | **0.669** | `uncertain` ✅ |
 | Lightly-edited AI | 0.70 | 0.62 | **0.667** | `uncertain` ✅ |
 
+**Example submissions showing meaningful score variation:**
+
+**1. High-confidence AI** (`confidence: 0.735` → `likely_ai` label):
+```
+Artificial intelligence represents a transformative paradigm shift in modern 
+society. It is important to note that while the benefits of AI are numerous, 
+it is equally essential to consider the ethical implications. Furthermore, 
+stakeholders across various sectors must collaborate to ensure responsible 
+deployment.
+```
+- **Signal 1 (LLM):** 0.90 — "The passage exhibits a balanced and hedged tone, typical of AI-generated text, with transitional phrases like 'Furthermore' and a reluctance to take a sharp stance."
+- **Signal 2 (stylometric):** 0.49 — Uniform sentence structure, even vocabulary
+- **Label shown to reader:** 🤖 **Likely AI-generated — about 74% confidence** / Our analysis suggests this text was probably created with significant AI assistance.
+
+**2. High-confidence human** (`confidence: 0.205` → `likely_human` label):
+```
+ok so i finally tried that new ramen place downtown and honestly? underwhelming. 
+the broth was fine but they put WAY too much sodium in it and i was thirsty 
+for like three hours after. my friend got the spicy version and said it was 
+better. probably won't go back unless someone drags me there
+```
+- **Signal 1 (LLM):** 0.10 — "The passage has an informal tone, uses colloquial expressions, and expresses a clear personal opinion, indicating human-written text."
+- **Signal 2 (stylometric):** 0.36 — Variable sentence lengths, casual punctuation, idiosyncratic phrasing
+- **Label shown to reader:** ✍️ **Likely human-written — about 79% confidence** / Our analysis found no strong signs of AI generation in this text.
+
+**Score variation:** The difference between 0.735 and 0.205 (0.53 point gap) demonstrates the scoring is **not constant** — it genuinely produces different verdicts across the full confidence range.
+
 The critical test — formal human writing — lands `uncertain` at `0.669`, just under the `0.70` AI threshold, by the scoring math itself (not the short-input guard). This is the asymmetry the spec calls for: a real human's measured, formal register doesn't get accused of being AI.
 
 ### Do the two signals agree?
