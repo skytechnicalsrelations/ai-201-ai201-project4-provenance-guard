@@ -13,6 +13,7 @@ from flask import Flask, Response, jsonify, request
 
 from apidocs import OPENAPI_SPEC, SWAGGER_HTML
 from auditor import AuditEvent, append_event, read_events
+from labels import generate_label
 from scoring import classify
 from signals import run_llm_signal, run_stylometric_signal
 
@@ -46,7 +47,7 @@ def submit():
     score = classify(llm.llm_score, sty.stylometric_score, is_short=sty.is_short)
     confidence = score.confidence
     attribution = score.attribution
-    label = "(transparency label generated in M5)"
+    label = generate_label(confidence, attribution)
 
     append_event(
         AuditEvent(
@@ -78,6 +79,48 @@ def get_log():
     """Return recent audit entries as JSON. Optional ?limit=N."""
     limit = request.args.get("limit", type=int)
     return jsonify({"entries": read_events(limit=limit)})
+
+
+@app.post("/appeal")
+def appeal():
+    """File an appeal against a classification decision."""
+    body = request.get_json(silent=True) or {}
+    content_id = body.get("content_id")
+    creator_id = body.get("creator_id")
+    creator_reasoning = body.get("creator_reasoning")
+
+    if not content_id or not creator_id or not creator_reasoning:
+        return jsonify({"error": "Fields 'content_id', 'creator_id', and 'creator_reasoning' are required."}), 400
+
+    events = read_events()
+    content_events = [e for e in events if e.get("content_id") == content_id]
+
+    if not content_events:
+        return jsonify({"error": "Content not found."}), 404
+
+    original_creator_id = content_events[0].get("creator_id")
+    if creator_id != original_creator_id:
+        return jsonify({"error": "Unauthorized: creator_id does not match the original submission."}), 403
+
+    current_status = content_events[-1].get("status")
+    if current_status == "under_review":
+        return jsonify({"error": "This content is already under review. Only one appeal per content is allowed."}), 409
+
+    appeal_event = AuditEvent(
+        content_id=content_id,
+        creator_id=creator_id,
+        timestamp=_utc_now(),
+        event="under_review",
+        status="under_review",
+        appeal_reasoning=creator_reasoning,
+    )
+    append_event(appeal_event)
+
+    return jsonify({
+        "content_id": content_id,
+        "status": "under_review",
+        "message": "Appeal received; the content is now under review.",
+    }), 200
 
 
 @app.get("/openapi.json")
