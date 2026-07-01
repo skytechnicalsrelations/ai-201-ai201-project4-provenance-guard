@@ -2,14 +2,19 @@
 
 POST /submit runs both detection signals (Signal 1 LLM classifier + Signal 2
 stylometric heuristics), blends them into a calibrated confidence + attribution
-band, and writes a `classified` event to the audit log. GET /log surfaces recent
-events. The transparency label is M5 work and stays a placeholder for now.
+band, and writes a `classified` event to the audit log. Rate-limited to 10 per
+minute, 100 per day. GET /log surfaces recent events. POST /appeal files appeals
+(checked against original creator_id, one appeal per content). GET /appeals
+returns the queue of content under_review with original decision and reasoning.
+GET /content/<content_id> returns a single submission's current state.
 """
 
 import uuid
 from datetime import datetime, timezone
 
 from flask import Flask, Response, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from apidocs import OPENAPI_SPEC, SWAGGER_HTML
 from auditor import AuditEvent, append_event, read_events
@@ -18,6 +23,11 @@ from scoring import classify
 from signals import run_llm_signal, run_stylometric_signal
 
 app = Flask(__name__)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
 
 
 def _utc_now() -> str:
@@ -25,10 +35,12 @@ def _utc_now() -> str:
 
 
 @app.post("/submit")
+@limiter.limit("10 per minute; 100 per day")
 def submit():
     """Accept text for attribution analysis and run the detection pipeline.
 
-    Signals 1 + 2 are live and combined; the transparency label is an M5 placeholder.
+    Signals 1 + 2 are live and combined; returns confidence score, attribution
+    band, and generated transparency label (M5). Rate-limited per client.
     """
     body = request.get_json(silent=True) or {}
     text = body.get("text")
@@ -121,6 +133,55 @@ def appeal():
         "status": "under_review",
         "message": "Appeal received; the content is now under review.",
     }), 200
+
+
+@app.get("/appeals")
+def get_appeals():
+    events = read_events()
+    under_review_events = [e for e in events if e.get("status") == "under_review"]
+
+    appeals = []
+    for appeal_event in under_review_events:
+        content_id = appeal_event.get("content_id")
+        content_events = [e for e in events if e.get("content_id") == content_id]
+        original_event = content_events[0]
+
+        appeals.append({
+            "content_id": content_id,
+            "creator_id": appeal_event.get("creator_id"),
+            "submitted_at": original_event.get("timestamp"),
+            "appealed_at": appeal_event.get("timestamp"),
+            "original_decision": {
+                "attribution": original_event.get("attribution"),
+                "confidence": original_event.get("confidence"),
+                "llm_score": original_event.get("llm_score"),
+                "stylometric_score": original_event.get("stylometric_score"),
+                "llm_rationale": original_event.get("llm_rationale"),
+            },
+            "appeal_reasoning": appeal_event.get("appeal_reasoning"),
+            "status": appeal_event.get("status"),
+        })
+
+    return jsonify({"appeals": appeals})
+
+
+@app.get("/content/<content_id>")
+def get_content(content_id):
+    events = read_events()
+    content_events = [e for e in events if e.get("content_id") == content_id]
+
+    if not content_events:
+        return jsonify({"error": "Content not found."}), 404
+
+    latest_event = content_events[-1]
+
+    return jsonify({
+        "content_id": content_id,
+        "creator_id": latest_event.get("creator_id"),
+        "attribution": latest_event.get("attribution"),
+        "confidence": latest_event.get("confidence"),
+        "status": latest_event.get("status"),
+    })
 
 
 @app.get("/openapi.json")
