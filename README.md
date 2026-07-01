@@ -24,7 +24,38 @@ Provenance Guard is a backend system that any creative-sharing platform can plug
    GROQ_API_KEY=your_key_here
    ```
 
-5. Run the app: `python app.py`
+5. Run the app (from the repo root): `python src/app.py`
+
+   The server starts on `http://127.0.0.1:5000`. Try it in a browser at `/docs`.
+
+6. Run the tests (from the repo root): `python -m pytest`
+
+   `pytest` reads `pythonpath = ["src"]` from `pyproject.toml`, so the tests find the source modules automatically. Note the tests hit the live Groq API and need `GROQ_API_KEY` set.
+
+---
+
+## Project Structure
+
+```
+.
+├── src/                  # application source (run from repo root)
+│   ├── app.py            # Flask API — routes, rate limiting, request handling
+│   ├── apidocs.py        # OpenAPI spec + Swagger UI page
+│   ├── auditor.py        # append-only JSONL audit log (source of truth)
+│   ├── config.py         # model name, log path, scoring constants, rate limits
+│   ├── signals.py        # Signal 1 (LLM classifier) + Signal 2 (stylometric)
+│   ├── scoring.py        # combines both signals into confidence + attribution
+│   └── labels.py         # plain-language transparency label generator
+├── tests/
+│   └── test_signals.py   # standalone signal + scoring tests (calibration set)
+├── logs/
+│   └── audit.jsonl       # runtime audit log (created/appended at runtime)
+├── planning.md           # full spec, architecture, and AI tool plan
+├── README.md
+├── pyproject.toml        # black / ruff / isort / pytest config
+├── requirements.txt
+└── .pre-commit-config.yaml
+```
 
 ---
 
@@ -159,7 +190,7 @@ Two takeaways:
 1. **Signal 2 stays compressed (0.36–0.62) — it never commits strongly.** All four reference inputs are short (~40–55 words), exactly where stylometrics is weakest, so it hovers near the middle while Signal 1 ranges 0.10–0.90. This *validates the spec's LLM-weighting* (`0.6/0.4`): the less reliable signal correctly gets less weight.
 2. **The signals fail in different directions, which is the whole point.** On casual human writing, stylometrics is the one that leans AI (0.36 vs 0.10). On formal human writing, the LLM is the one that leans AI (0.80 vs 0.47) and stylometrics drags it back. Because neither dominates the same way twice, combining them is more robust than trusting either — and the appeal path covers the case where they're *both* wrong (formal/non-native writing, their shared blind spot).
 
-These agreements/divergences, plus the band and scoring assertions, are checked in `test_signals.py`.
+These agreements/divergences, plus the band and scoring assertions, are checked in `tests/test_signals.py`.
 
 ---
 

@@ -1,4 +1,4 @@
-exclude: ^(.venv|venv|\.venv|references/)
+exclude: ^(.venv|venv|\.venv)
 repos:
   - repo: https://github.com/psf/black
     rev: 24.3.0
