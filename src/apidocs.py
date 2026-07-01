@@ -1,26 +1,28 @@
 """OpenAPI spec + Swagger UI page for Provenance Guard.
 
-Kept out of app.py so the route handlers stay readable. The spec describes only
-the endpoints that actually exist (M3: /submit, /log); M5 endpoints get added
-here when they land, so the docs never advertise something that 404s.
+Kept out of app.py so the route handlers stay readable. The spec describes every
+endpoint that actually exists, so the docs never advertise something that 404s.
 """
 
 OPENAPI_SPEC = {
     "openapi": "3.0.3",
     "info": {
         "title": "Provenance Guard API",
-        "version": "0.3.0",
+        "version": "0.5.0",
         "description": (
             "Text-provenance attribution service. Submit text, get an AI-vs-human "
-            "attribution with a transparency label, backed by an append-only audit "
-            "log.\n\n_M3: Signal 1 (LLM classifier) is live; confidence/attribution "
-            "are provisional from Signal 1 alone, and the label is a placeholder "
-            "until M5._"
+            "attribution with a calibrated confidence score and transparency label, "
+            "backed by an append-only audit log. Creators can appeal a decision, "
+            "which moves the content into a review queue.\n\n_M5: Signal 1 (LLM "
+            "classifier) and Signal 2 (stylometric heuristics) are both live and "
+            "blended (0.6 LLM + 0.4 stylometric, with a short-input guard)._"
         ),
     },
     "tags": [
         {"name": "submission", "description": "Submit text for attribution analysis"},
         {"name": "audit", "description": "Inspect the audit log"},
+        {"name": "appeals", "description": "File and review appeals against decisions"},
+        {"name": "content", "description": "Look up the state of a submission"},
     ],
     "paths": {
         "/submit": {
@@ -64,7 +66,11 @@ OPENAPI_SPEC = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
                         },
                     },
-                    "429": {"description": "Rate limit exceeded (added in M5)"},
+                    "429": {
+                        "description": (
+                            "Rate limit exceeded (10 per minute, 100 per day per client)"
+                        )
+                    },
                 },
             }
         },
@@ -93,6 +99,124 @@ OPENAPI_SPEC = {
                             }
                         },
                     }
+                },
+            }
+        },
+        "/appeal": {
+            "post": {
+                "tags": ["appeals"],
+                "summary": "File an appeal against a classification",
+                "description": (
+                    "Files an appeal for a previously classified submission and moves "
+                    "it to `under_review`. The `creator_id` must match the original "
+                    "submitter, and only one appeal per content is allowed."
+                ),
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/AppealRequest"},
+                            "example": {
+                                "content_id": "00000000-0000-0000-0000-000000000000",
+                                "creator_id": "test-user-1",
+                                "creator_reasoning": (
+                                    "This is my original writing; the classifier "
+                                    "misjudged my style."
+                                ),
+                            },
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Appeal received; content now under review",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AppealResponse"}
+                            }
+                        },
+                    },
+                    "400": {
+                        "description": (
+                            "Missing `content_id`, `creator_id`, or `creator_reasoning`"
+                        ),
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
+                    "403": {
+                        "description": "`creator_id` does not match the original submission",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
+                    "404": {
+                        "description": "Content not found",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
+                    "409": {
+                        "description": "Content is already under review (one appeal per content)",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
+                },
+            }
+        },
+        "/appeals": {
+            "get": {
+                "tags": ["appeals"],
+                "summary": "List content currently under review",
+                "description": (
+                    "Returns the queue of appealed submissions, each with its original "
+                    "decision, reasoning, and the creator's appeal reasoning."
+                ),
+                "responses": {
+                    "200": {
+                        "description": "Appeal queue",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AppealsResponse"}
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/content/{content_id}": {
+            "get": {
+                "tags": ["content"],
+                "summary": "Get a single submission's current state",
+                "description": (
+                    "Returns the latest known state for a content_id, including its "
+                    "attribution, confidence, and status."
+                ),
+                "parameters": [
+                    {
+                        "name": "content_id",
+                        "in": "path",
+                        "required": True,
+                        "description": "The content_id returned by /submit",
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Current content state",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ContentResponse"}
+                            }
+                        },
+                    },
+                    "404": {
+                        "description": "Content not found",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
+                        },
+                    },
                 },
             }
         },
@@ -153,6 +277,80 @@ OPENAPI_SPEC = {
                         "type": "array",
                         "items": {"$ref": "#/components/schemas/AuditEvent"},
                     }
+                },
+            },
+            "AppealRequest": {
+                "type": "object",
+                "required": ["content_id", "creator_id", "creator_reasoning"],
+                "properties": {
+                    "content_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The content_id returned by /submit",
+                    },
+                    "creator_id": {
+                        "type": "string",
+                        "description": "Must match the original submitter",
+                    },
+                    "creator_reasoning": {
+                        "type": "string",
+                        "description": "Why the creator is contesting the decision",
+                    },
+                },
+            },
+            "AppealResponse": {
+                "type": "object",
+                "properties": {
+                    "content_id": {"type": "string", "format": "uuid"},
+                    "status": {"type": "string", "enum": ["under_review"]},
+                    "message": {"type": "string"},
+                },
+            },
+            "Appeal": {
+                "type": "object",
+                "properties": {
+                    "content_id": {"type": "string", "format": "uuid"},
+                    "creator_id": {"type": "string"},
+                    "submitted_at": {"type": "string", "format": "date-time"},
+                    "appealed_at": {"type": "string", "format": "date-time"},
+                    "original_decision": {
+                        "type": "object",
+                        "properties": {
+                            "attribution": {"type": "string", "nullable": True},
+                            "confidence": {"type": "number", "nullable": True},
+                            "llm_score": {"type": "number", "nullable": True},
+                            "stylometric_score": {"type": "number", "nullable": True},
+                            "llm_rationale": {"type": "string", "nullable": True},
+                        },
+                    },
+                    "appeal_reasoning": {"type": "string"},
+                    "status": {"type": "string", "enum": ["under_review"]},
+                },
+            },
+            "AppealsResponse": {
+                "type": "object",
+                "properties": {
+                    "appeals": {
+                        "type": "array",
+                        "items": {"$ref": "#/components/schemas/Appeal"},
+                    }
+                },
+            },
+            "ContentResponse": {
+                "type": "object",
+                "properties": {
+                    "content_id": {"type": "string", "format": "uuid"},
+                    "creator_id": {"type": "string"},
+                    "attribution": {
+                        "type": "string",
+                        "enum": ["likely_ai", "uncertain", "likely_human"],
+                        "nullable": True,
+                    },
+                    "confidence": {"type": "number", "format": "float", "nullable": True},
+                    "status": {
+                        "type": "string",
+                        "enum": ["classified", "under_review"],
+                    },
                 },
             },
             "Error": {
