@@ -18,15 +18,14 @@ from flask_limiter.util import get_remote_address
 
 from apidocs import OPENAPI_SPEC, SWAGGER_HTML
 from auditor import AuditEvent, append_event, read_events
+from config import RATE_LIMIT_DEFAULT, RATE_LIMIT_SUBMIT
 from labels import generate_label
 from scoring import classify
 from signals import run_llm_signal, run_stylometric_signal
 
 app = Flask(__name__)
 limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    app=app, key_func=get_remote_address, default_limits=[RATE_LIMIT_DEFAULT]
 )
 
 
@@ -35,7 +34,7 @@ def _utc_now() -> str:
 
 
 @app.post("/submit")
-@limiter.limit("10 per minute; 100 per day")
+@limiter.limit(RATE_LIMIT_SUBMIT)
 def submit():
     """Accept text for attribution analysis and run the detection pipeline.
 
@@ -102,7 +101,14 @@ def appeal():
     creator_reasoning = body.get("creator_reasoning")
 
     if not content_id or not creator_id or not creator_reasoning:
-        return jsonify({"error": "Fields 'content_id', 'creator_id', and 'creator_reasoning' are required."}), 400
+        return (
+            jsonify(
+                {
+                    "error": "Fields 'content_id', 'creator_id', and 'creator_reasoning' are required."
+                }
+            ),
+            400,
+        )
 
     events = read_events()
     content_events = [e for e in events if e.get("content_id") == content_id]
@@ -112,11 +118,25 @@ def appeal():
 
     original_creator_id = content_events[0].get("creator_id")
     if creator_id != original_creator_id:
-        return jsonify({"error": "Unauthorized: creator_id does not match the original submission."}), 403
+        return (
+            jsonify(
+                {
+                    "error": "Unauthorized: creator_id does not match the original submission."
+                }
+            ),
+            403,
+        )
 
     current_status = content_events[-1].get("status")
     if current_status == "under_review":
-        return jsonify({"error": "This content is already under review. Only one appeal per content is allowed."}), 409
+        return (
+            jsonify(
+                {
+                    "error": "This content is already under review. Only one appeal per content is allowed."
+                }
+            ),
+            409,
+        )
 
     appeal_event = AuditEvent(
         content_id=content_id,
@@ -128,11 +148,16 @@ def appeal():
     )
     append_event(appeal_event)
 
-    return jsonify({
-        "content_id": content_id,
-        "status": "under_review",
-        "message": "Appeal received; the content is now under review.",
-    }), 200
+    return (
+        jsonify(
+            {
+                "content_id": content_id,
+                "status": "under_review",
+                "message": "Appeal received; the content is now under review.",
+            }
+        ),
+        200,
+    )
 
 
 @app.get("/appeals")
@@ -146,21 +171,23 @@ def get_appeals():
         content_events = [e for e in events if e.get("content_id") == content_id]
         original_event = content_events[0]
 
-        appeals.append({
-            "content_id": content_id,
-            "creator_id": appeal_event.get("creator_id"),
-            "submitted_at": original_event.get("timestamp"),
-            "appealed_at": appeal_event.get("timestamp"),
-            "original_decision": {
-                "attribution": original_event.get("attribution"),
-                "confidence": original_event.get("confidence"),
-                "llm_score": original_event.get("llm_score"),
-                "stylometric_score": original_event.get("stylometric_score"),
-                "llm_rationale": original_event.get("llm_rationale"),
-            },
-            "appeal_reasoning": appeal_event.get("appeal_reasoning"),
-            "status": appeal_event.get("status"),
-        })
+        appeals.append(
+            {
+                "content_id": content_id,
+                "creator_id": appeal_event.get("creator_id"),
+                "submitted_at": original_event.get("timestamp"),
+                "appealed_at": appeal_event.get("timestamp"),
+                "original_decision": {
+                    "attribution": original_event.get("attribution"),
+                    "confidence": original_event.get("confidence"),
+                    "llm_score": original_event.get("llm_score"),
+                    "stylometric_score": original_event.get("stylometric_score"),
+                    "llm_rationale": original_event.get("llm_rationale"),
+                },
+                "appeal_reasoning": appeal_event.get("appeal_reasoning"),
+                "status": appeal_event.get("status"),
+            }
+        )
 
     return jsonify({"appeals": appeals})
 
@@ -175,13 +202,15 @@ def get_content(content_id):
 
     latest_event = content_events[-1]
 
-    return jsonify({
-        "content_id": content_id,
-        "creator_id": latest_event.get("creator_id"),
-        "attribution": latest_event.get("attribution"),
-        "confidence": latest_event.get("confidence"),
-        "status": latest_event.get("status"),
-    })
+    return jsonify(
+        {
+            "content_id": content_id,
+            "creator_id": latest_event.get("creator_id"),
+            "attribution": latest_event.get("attribution"),
+            "confidence": latest_event.get("confidence"),
+            "status": latest_event.get("status"),
+        }
+    )
 
 
 @app.get("/openapi.json")

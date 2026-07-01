@@ -54,3 +54,10 @@ PUNCT_EXPRESSIVE_MAX = 0.12
 # emit a confident verdict and bias the result to `uncertain`.
 MIN_WORDS = 25
 MIN_SENTENCES = 3
+
+# --- Rate limiting (M5) ---
+# Default rate limit across all endpoints (per-client, per-day/hour)
+RATE_LIMIT_DEFAULT = "200 per day; 50 per hour"
+# Specific limit on POST /submit (per-client)
+# Prevents Groq API budget abuse from script floods while allowing normal creator usage
+RATE_LIMIT_SUBMIT = "10 per minute; 100 per day"
