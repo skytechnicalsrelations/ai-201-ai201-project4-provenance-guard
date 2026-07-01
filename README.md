@@ -174,6 +174,8 @@ The appeal path is for the error that matters most: a human creator labeled (or 
 @limiter.limit("10 per minute; 100 per day")
 ```
 
+**Test evidence:** Sending 12 rapid requests to `/submit` (exceeding the 10 per-minute limit) returns the first 10 with status `200` and the next 2 with status `429`:
+![alt text](image.png)
 ---
 
 ## Audit Log
