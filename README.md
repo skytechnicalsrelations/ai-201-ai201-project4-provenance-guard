@@ -117,6 +117,24 @@ The four reference inputs were run through the live pipeline to validate the ban
 
 The critical test — formal human writing — lands `uncertain` at `0.669`, just under the `0.70` AI threshold, by the scoring math itself (not the short-input guard). This is the asymmetry the spec calls for: a real human's measured, formal register doesn't get accused of being AI.
 
+### Do the two signals agree?
+
+Running both signals standalone on the same four inputs shows *where* they diverge — which is more informative than either score alone:
+
+| Input | Signal 1 (llm) | Signal 2 (sty) | Gap | What the divergence says |
+|-------|:--:|:--:|:--:|------|
+| Clear AI | 0.90 | 0.49 | 0.41 | LLM commits hard; stylometrics only leans, because short text gives it little to measure |
+| Clear human | 0.10 | 0.36 | 0.26 | Stylometrics *over-reads* casual writing as somewhat AI-ish; the LLM correctly nails the voice |
+| Formal human | 0.80 | 0.47 | 0.33 | Here the **LLM** is the false-positive driver, not stylometrics — and stylometrics *pulls the blend back* toward `uncertain` |
+| Lightly-edited AI | 0.70 | 0.62 | 0.08 | Closest agreement; both lean AI |
+
+Two takeaways:
+
+1. **Signal 2 stays compressed (0.36–0.62) — it never commits strongly.** All four reference inputs are short (~40–55 words), exactly where stylometrics is weakest, so it hovers near the middle while Signal 1 ranges 0.10–0.90. This *validates the spec's LLM-weighting* (`0.6/0.4`): the less reliable signal correctly gets less weight.
+2. **The signals fail in different directions, which is the whole point.** On casual human writing, stylometrics is the one that leans AI (0.36 vs 0.10). On formal human writing, the LLM is the one that leans AI (0.80 vs 0.47) and stylometrics drags it back. Because neither dominates the same way twice, combining them is more robust than trusting either — and the appeal path covers the case where they're *both* wrong (formal/non-native writing, their shared blind spot).
+
+These agreements/divergences, plus the band and scoring assertions, are checked in `test_signals.py`.
+
 ---
 
 ## Transparency Label
