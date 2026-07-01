@@ -41,9 +41,7 @@ class LLMResult:
 
 # Neutral result returned when the API call or parsing fails. 0.5 keeps a broken
 # call from silently pushing a submission toward either band.
-_FALLBACK = LLMResult(
-    llm_score=0.5, rationale="LLM signal unavailable; defaulted to neutral."
-)
+_FALLBACK = LLMResult(llm_score=0.5, rationale="LLM signal unavailable; defaulted to neutral.")
 
 _SYSTEM_PROMPT = (
     "You are a text-provenance analyst. Judge how AI-written a passage reads, based "

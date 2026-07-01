@@ -1,0 +1,25 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit",
+      "source.fixAll": "explicit"
+    }
+  },
+  "python.linting.enabled": true,
+  "python.linting.ruffEnabled": true,
+  "python.linting.ruffArgs": [
+    "--fix"
+  ],
+  "python.formatting.provider": "black",
+  "python.formatting.blackArgs": [
+    "--line-length=100"
+  ],
+  "[python.line_length]": 100,
+  "files.exclude": {
+    ".venv": true,
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
+}

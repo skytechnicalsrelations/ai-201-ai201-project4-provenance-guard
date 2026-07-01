@@ -54,18 +54,14 @@ OPENAPI_SPEC = {
                         "description": "Classification result",
                         "content": {
                             "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/SubmitResponse"
-                                }
+                                "schema": {"$ref": "#/components/schemas/SubmitResponse"}
                             }
                         },
                     },
                     "400": {
                         "description": "Missing `text` or `creator_id`",
                         "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/Error"}
-                            }
+                            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
                         },
                     },
                     "429": {"description": "Rate limit exceeded (added in M5)"},
@@ -76,7 +72,9 @@ OPENAPI_SPEC = {
             "get": {
                 "tags": ["audit"],
                 "summary": "Recent audit log entries",
-                "description": "Returns audit events oldest-first. In production this would require auth.",
+                "description": (
+                    "Returns audit events oldest-first. " "In production this would require auth."
+                ),
                 "parameters": [
                     {
                         "name": "limit",

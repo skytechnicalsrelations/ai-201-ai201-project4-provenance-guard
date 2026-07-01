@@ -1,0 +1,33 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "venv", ".git"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true

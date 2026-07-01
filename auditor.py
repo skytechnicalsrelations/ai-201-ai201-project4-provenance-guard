@@ -5,6 +5,7 @@ appends an `under_review` event for the same content_id. The current state of a
 content_id is the *most recent* event for it ("latest event wins"); nothing is
 ever overwritten.
 """
+
 import json
 import os
 from dataclasses import asdict, dataclass

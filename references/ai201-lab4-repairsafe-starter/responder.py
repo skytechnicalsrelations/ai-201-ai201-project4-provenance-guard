@@ -1,5 +1,6 @@
 from groq import Groq
-from config import GROQ_API_KEY, LLM_MODEL
+
+from config import GROQ_API_KEY
 
 _client = Groq(api_key=GROQ_API_KEY)
 

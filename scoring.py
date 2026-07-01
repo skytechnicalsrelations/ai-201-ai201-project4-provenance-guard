@@ -12,6 +12,7 @@ The false-positive hedge lives in the thresholds (AI band starts high at 0.70),
 not in the combination. All four numbers come from config so calibration has a
 single source of truth.
 """
+
 from dataclasses import dataclass
 
 from config import AI_THRESHOLD, HUMAN_THRESHOLD, LLM_WEIGHT, STYLOMETRIC_WEIGHT

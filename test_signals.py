@@ -8,6 +8,7 @@ Signal 1 hits the live Groq API, so these are integration-style checks, not pure
 unit tests -- they need GROQ_API_KEY set and may shift by a few hundredths run to
 run (the borderline bands are deliberately near 0.70).
 """
+
 from scoring import attribution_band, classify, combine_confidence
 from signals import run_llm_signal, run_stylometric_signal
 

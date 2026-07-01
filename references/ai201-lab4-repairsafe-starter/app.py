@@ -1,6 +1,7 @@
 import gradio as gr
-from safety import classify_safety_tier
 from responder import generate_safe_response
+from safety import classify_safety_tier
+
 from auditor import log_interaction
 
 # ---------------------------------------------------------------------------
@@ -59,29 +60,30 @@ def _tier_html(tier: str, reason: str) -> str:
     note = cfg["note"]
     reason_block = (
         f'<p style="margin:8px 0 0 0;color:#374151;font-size:0.9em;">'
-        f'<strong>Why:</strong> {reason}</p>'
+        f"<strong>Why:</strong> {reason}</p>"
         if reason and tier in ("safe", "caution", "refuse")
         else ""
     )
     return (
         f'<div style="font-family:sans-serif;padding:14px 18px;'
-        f'border-left:5px solid {color};background:#f9fafb;'
+        f"border-left:5px solid {color};background:#f9fafb;"
         f'border-radius:0 8px 8px 0;margin-bottom:4px;">'
         f'  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">'
         f'    <span style="font-size:1.25em;">{icon}</span>'
         f'    <span style="background:{color};color:white;padding:3px 14px;'
         f'border-radius:12px;font-weight:700;font-size:0.9em;letter-spacing:0.06em;">'
-        f'{label}</span>'
-        f'  </div>'
+        f"{label}</span>"
+        f"  </div>"
         f'  <p style="margin:4px 0 0 0;color:#6b7280;font-size:0.85em;">{note}</p>'
-        f'  {reason_block}'
-        f'</div>'
+        f"  {reason_block}"
+        f"</div>"
     )
 
 
 # ---------------------------------------------------------------------------
 # Core pipeline
 # ---------------------------------------------------------------------------
+
 
 def handle_question(question: str):
     if not question.strip():
@@ -107,6 +109,7 @@ def handle_question(question: str):
 # ---------------------------------------------------------------------------
 # Tier guide content (loaded once at startup)
 # ---------------------------------------------------------------------------
+
 
 def _load_tier_guide() -> str:
     try:
@@ -136,7 +139,6 @@ CSS = """
 """
 
 with gr.Blocks(title="RepairSafe") as demo:
-
     gr.Markdown(
         """
 # 🔧 RepairSafe
@@ -153,10 +155,8 @@ Before the safety layer works, complete the milestones:
     )
 
     with gr.Tabs():
-
         with gr.Tab("Ask a Question"):
             with gr.Row():
-
                 with gr.Column(scale=2):
                     question_box = gr.Textbox(
                         label="Your repair question",

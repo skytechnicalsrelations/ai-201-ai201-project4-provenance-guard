@@ -1,9 +1,3 @@
-import json
-import os
-from datetime import datetime
-from config import LOG_FILE
-
-
 def log_interaction(question: str, tier: str, response: str) -> None:
     """
     Append a structured record of this interaction to the audit log.

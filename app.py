@@ -24,9 +24,7 @@ from scoring import classify
 from signals import run_llm_signal, run_stylometric_signal
 
 app = Flask(__name__)
-limiter = Limiter(
-    app=app, key_func=get_remote_address, default_limits=[RATE_LIMIT_DEFAULT]
-)
+limiter = Limiter(app=app, key_func=get_remote_address, default_limits=[RATE_LIMIT_DEFAULT])
 
 
 def _utc_now() -> str:
@@ -104,7 +102,10 @@ def appeal():
         return (
             jsonify(
                 {
-                    "error": "Fields 'content_id', 'creator_id', and 'creator_reasoning' are required."
+                    "error": (
+                        "Fields 'content_id', 'creator_id', and "
+                        "'creator_reasoning' are required."
+                    )
                 }
             ),
             400,
@@ -120,9 +121,7 @@ def appeal():
     if creator_id != original_creator_id:
         return (
             jsonify(
-                {
-                    "error": "Unauthorized: creator_id does not match the original submission."
-                }
+                {"error": ("Unauthorized: creator_id does not match the " "original submission.")}
             ),
             403,
         )
@@ -132,7 +131,10 @@ def appeal():
         return (
             jsonify(
                 {
-                    "error": "This content is already under review. Only one appeal per content is allowed."
+                    "error": (
+                        "This content is already under review. "
+                        "Only one appeal per content is allowed."
+                    )
                 }
             ),
             409,
